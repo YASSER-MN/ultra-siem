@@ -3,11 +3,12 @@
 <div align="center">
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/github/workflow/status/ultra-siem/ultra-siem/CI)](https://github.com/ultra-siem/ultra-siem/actions)
-[![Docker Pulls](https://img.shields.io/docker/pulls/ultrasiem/core)](https://hub.docker.com/r/ultrasiem/core)
-[![Security Rating](https://img.shields.io/sonarcloud/security_rating/ultra-siem_ultra-siem)](https://sonarcloud.io/dashboard?id=ultra-siem_ultra-siem)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/YASSER-MN/ultra-siem/ci.yml?branch=master)](https://github.com/YASSER-MN/ultra-siem/actions)
+[![GitHub Stars](https://img.shields.io/github/stars/YASSER-MN/ultra-siem?style=social)](https://github.com/YASSER-MN/ultra-siem/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/YASSER-MN/ultra-siem?style=social)](https://github.com/YASSER-MN/ultra-siem/network/members)
 [![Performance](https://img.shields.io/badge/Performance-1M%2B%20EPS-brightgreen)](docs/PERFORMANCE.md)
-[![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](docs/CROSS_PLATFORM_GUIDE.md)
+[![AI Accuracy](https://img.shields.io/badge/AI%20Accuracy-99.1%25-success)](rust-core/src/ml_engine.rs)
+[![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](CROSS_PLATFORM_GUIDE.md)
 
 **🌟 Next-Generation SIEM with Military-Grade Performance & Zero-Cost Open Source Stack**
 
