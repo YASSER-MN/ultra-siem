@@ -1,0 +1,150 @@
+services:
+  nats:
+    image: nats:alpine
+    command: "-js -m 8222"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    environment:
+      - NATS_PASSWORD=ultra_secure_password_2024
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nats", "server", "check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_DB=siem
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=admin123
+    deploy:
+      resources:
+        limits:
+          cpus: "4.00"
+          memory: 8G
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  siem-core:
+    build:
+      context: ./rust-core
+      dockerfile: Dockerfile
+    environment:
+      - NATS_URL=nats://nats:4222
+      - RUST_LOG=info
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: ./go-services
+      dockerfile: Dockerfile
+    environment:
+      - GOMAXPROCS=4
+      - GOGC=100
+      - NATS_URL=nats://nats:4222
+      - CLICKHOUSE_URL=http://clickhouse:8123
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    depends_on:
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  query-engine:
+    build:
+      context: ./zig-query
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - CLICKHOUSE_URL=http://clickhouse:8123
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  nats_data:
+  grafana_data:
+  clickhouse_data:

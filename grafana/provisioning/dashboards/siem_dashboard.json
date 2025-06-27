@@ -1,0 +1,122 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🛡️ Ultra SIEM - Threat Monitor",
+    "tags": ["siem", "security", "threats"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "🚨 Real-Time Threat Count",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "SELECT count() FROM siem.threats WHERE event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": { "displayMode": "list", "orientation": "horizontal" },
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 10 },
+                { "color": "red", "value": 50 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "⚡ Threats by Severity",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "SELECT severity, count() as count FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY severity",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "🌍 Top Source Countries",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "SELECT geo_country, count() as threats FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY geo_country ORDER BY threats DESC LIMIT 10",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 }
+      },
+      {
+        "id": 4,
+        "title": "📊 Threat Types Distribution",
+        "type": "barchart",
+        "targets": [
+          {
+            "expr": "SELECT threat_type, count() as count FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY threat_type",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 }
+      },
+      {
+        "id": 5,
+        "title": "🔥 High Severity Threats (Last 24h)",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "SELECT event_time, source_ip, threat_type, message, confidence_score FROM siem.threats WHERE severity = 'HIGH' AND event_time >= now() - INTERVAL 24 HOUR ORDER BY event_time DESC LIMIT 50",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 }
+      },
+      {
+        "id": 6,
+        "title": "📈 Threats Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "SELECT toStartOfHour(event_time) as time, count() as threats FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "pointSize": 5
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "🎯 Top Attacking IPs",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "SELECT source_ip, count() as attack_count, avg(confidence_score) as avg_confidence FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY source_ip ORDER BY attack_count DESC LIMIT 15",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 }
+      }
+    ],
+    "time": { "from": "now-24h", "to": "now" },
+    "refresh": "30s",
+    "schemaVersion": 27,
+    "version": 0,
+    "links": []
+  }
+}

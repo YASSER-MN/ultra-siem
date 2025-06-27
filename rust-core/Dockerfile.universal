@@ -1,0 +1,61 @@
+FROM rust:1.75-slim as builder
+
+ARG TARGET_PLATFORM=linux
+
+WORKDIR /app
+
+# Install platform-specific build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    gcc \
+    libc6-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY Cargo.toml Cargo.lock ./
+
+# Create platform-specific Cargo.toml
+RUN if [ "$TARGET_PLATFORM" = "windows" ]; then \
+        echo '[dependencies.windows] = { version = "0.52", features = ["Win32_System_Diagnostics_Etw", "Win32_Foundation"] }' >> Cargo.toml; \
+    elif [ "$TARGET_PLATFORM" = "linux" ]; then \
+        echo '[dependencies.systemd] = "0.10"' >> Cargo.toml; \
+    elif [ "$TARGET_PLATFORM" = "macos" ]; then \
+        echo '[dependencies.core-foundation] = "0.9"' >> Cargo.toml; \
+    fi
+
+# Pre-build dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
+
+# Copy source based on platform
+COPY src/ ./src/
+RUN if [ "$TARGET_PLATFORM" = "universal" ] || [ -f "src/universal_main.rs" ]; then \
+        cp src/universal_main.rs src/main.rs; \
+    fi
+
+# Build with optimizations
+RUN cargo build --release --locked
+
+# Production stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r siem && useradd -r -g siem siem
+
+# Copy binary
+COPY --from=builder /app/target/release/siem-rust-core /usr/local/bin/siem-core
+RUN chmod +x /usr/local/bin/siem-core
+
+# Switch to non-root user
+USER siem
+
+EXPOSE 8080
+
+CMD ["siem-core"] 

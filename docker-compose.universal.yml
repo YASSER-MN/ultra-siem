@@ -1,0 +1,131 @@
+services:
+  nats:
+    image: nats:alpine
+    command: "-js -m 8222"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    environment:
+      - NATS_PASSWORD=universal_siem_2024
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/varz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_DB=siem
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=admin123
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  universal-siem-core:
+    build:
+      context: ./rust-core
+      dockerfile: Dockerfile.universal
+      args:
+        - TARGET_PLATFORM=${TARGET_PLATFORM:-linux}
+    environment:
+      - NATS_URL=nats://nats:4222
+      - RUST_LOG=info
+      - PLATFORM=${TARGET_PLATFORM:-linux}
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: ./go-services
+      dockerfile: Dockerfile
+    environment:
+      - GOMAXPROCS=4
+      - GOGC=100
+      - NATS_URL=nats://nats:4222
+      - CLICKHOUSE_URL=http://clickhouse:8123
+    depends_on:
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  query-engine:
+    build:
+      context: ./zig-query
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - CLICKHOUSE_URL=http://clickhouse:8123
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Log collectors for different platforms
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    user: root
+    volumes:
+      - ./config/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - NATS_URL=nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    profiles:
+      - linux
+      - macos
+
+  # Windows Event Log collector (when running on Windows hosts)
+  winlogbeat:
+    image: docker.elastic.co/beats/winlogbeat:8.11.0
+    volumes:
+      - ./config/winlogbeat.yml:/usr/share/winlogbeat/winlogbeat.yml:ro
+    environment:
+      - NATS_URL=nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    profiles:
+      - windows
+
+volumes:
+  nats_data:
+  grafana_data:
+  clickhouse_data:

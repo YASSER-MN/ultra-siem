@@ -1,0 +1,163 @@
+name: 🚀 Ultra SIEM CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  code-quality:
+    name: 🔍 Code Quality & Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📊 SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  rust-tests:
+    name: 🦀 Rust Components
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust-version: [stable, beta]
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🦀 Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust-version }}
+          profile: minimal
+          override: true
+          components: rustfmt, clippy
+
+      - name: 📦 Cache Cargo Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: 🎨 Check Formatting
+        run: cargo fmt --all -- --check
+        working-directory: rust-core
+
+      - name: 🔍 Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: rust-core
+
+      - name: 🧪 Run Tests
+        run: cargo test --verbose --all-features
+        working-directory: rust-core
+
+  go-tests:
+    name: 🐹 Go Services
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ["1.21", "1.22"]
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: 📦 Cache Go Modules
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: 🧪 Run Tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+        working-directory: go-services
+
+      - name: 📊 Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./go-services/coverage.out
+          flags: go-services
+
+  integration-tests:
+    name: 🔗 Integration Tests
+    runs-on: ubuntu-latest
+    needs: [rust-tests, go-tests]
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 📦 Build Test Environment
+        run: |
+          docker-compose -f docker-compose.simple.yml up -d
+
+      - name: ⏳ Wait for Services
+        run: |
+          timeout 300s bash -c 'until curl -f http://localhost:8123/ping; do sleep 5; done'
+          timeout 300s bash -c 'until curl -f http://localhost:3000/api/health; do sleep 5; done'
+
+      - name: 🧪 Run Integration Tests
+        run: |
+          echo "Running integration tests..."
+          curl -s http://localhost:8123/ping
+          curl -s http://localhost:3000/api/health
+
+      - name: 📋 Cleanup
+        run: docker-compose -f docker-compose.simple.yml down -v
+
+  docker-build:
+    name: 🐳 Docker Build
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'push'
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build Docker Images
+        run: |
+          docker-compose -f docker-compose.simple.yml build
+
+  notify:
+    name: 📢 Notifications
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: always()
+
+    steps:
+      - name: ✅ Success Notification
+        if: success()
+        run: |
+          echo "🎉 Ultra SIEM CI/CD Pipeline completed successfully!"
+          echo "All tests passed and builds completed."
