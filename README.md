@@ -21,6 +21,17 @@
 
 ---
 
+## 💖 Sponsor Ultra SIEM
+
+Support the future of open source security!
+
+[![Sponsor on Open Collective](https://img.shields.io/badge/Open%20Collective-Sponsor-3385FF?logo=opencollective&style=for-the-badge)](https://opencollective.com/ultra-siem)
+[![Sponsor on Patreon](https://img.shields.io/badge/Patreon-Sponsor-F96854?logo=patreon&style=for-the-badge)](https://patreon.com/ultra-siem)
+[![Sponsor on Ko-fi](https://img.shields.io/badge/Ko--fi-Sponsor-29ABE0?logo=kofi&style=for-the-badge)](https://ko-fi.com/ultra-siem)
+[![Sponsor on GitHub](https://img.shields.io/badge/GitHub%20Sponsors-Sponsor-ff69b4?logo=githubsponsors&style=for-the-badge)](https://github.com/sponsors/ultra-siem)
+
+---
+
 ## 🎯 **Revolutionary Enterprise Security**
 
 Ultra SIEM is a **groundbreaking enterprise-grade Security Information and Event Management system** that combines the raw power of **Rust**, **Go**, and **Zig** to deliver unprecedented performance and security capabilities that rival commercial solutions costing millions.

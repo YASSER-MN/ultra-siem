@@ -12,8 +12,4 @@ ko_fi: ultra-siem
 
 # Custom funding options
 custom:
-  [
-    "https://ultra-siem.com/sponsor",
-    "https://opencollective.com/ultra-siem",
-    "mailto:sponsor@ultra-siem.com",
-  ]
+  - "https://ultra-siem.com/sponsor"
