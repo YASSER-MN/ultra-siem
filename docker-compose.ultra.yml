@@ -1,150 +1,244 @@
+version: "3.8"
+
 services:
-  nats:
-    image: nats:alpine
-    command: "-js -m 8222"
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: ultra-siem-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ultra_siem
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "8123:8123"
+      - "9000:9000"
     volumes:
-      - nats_data:/data
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
     deploy:
       resources:
         limits:
-          cpus: "2.00"
-          memory: 2G
+          memory: 4G
+          cpus: "2.0"
         reservations:
-          cpus: "0.5"
-          memory: 512M
-    environment:
-      - NATS_PASSWORD=ultra_secure_password_2024
-    restart: unless-stopped
+          memory: 2G
+          cpus: "1.0"
     healthcheck:
-      test: ["CMD", "nats", "server", "check"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8123/ping",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:latest
+  nats:
+    image: nats:alpine
+    container_name: ultra-siem-nats
+    restart: unless-stopped
+    command: ["-js", "-m", "8222", "-c", "/etc/nats/nats.conf"]
     ports:
-      - "8123:8123"
-      - "9000:9000"
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
+      - "4222:4222"
+      - "8222:8222"
     volumes:
-      - clickhouse_data:/var/lib/clickhouse
-    environment:
-      - CLICKHOUSE_DB=siem
-      - CLICKHOUSE_USER=admin
-      - CLICKHOUSE_PASSWORD=admin123
+      - ./config/nats.conf:/etc/nats/nats.conf
+      - nats_data:/data
     deploy:
       resources:
         limits:
-          cpus: "4.00"
-          memory: 8G
+          memory: 1G
+          cpus: "0.5"
         reservations:
-          cpus: "1.0"
-          memory: 2G
-    restart: unless-stopped
+          memory: 512M
+          cpus: "0.25"
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8222/healthz",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
 
   grafana:
     image: grafana/grafana-oss:latest
+    container_name: ultra-siem-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
     ports:
       - "3000:3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
       - grafana_data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     deploy:
       resources:
         limits:
-          cpus: "1.00"
           memory: 1G
+          cpus: "0.5"
         reservations:
+          memory: 512M
           cpus: "0.25"
-          memory: 256M
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/api/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  siem-core:
+  rust-core:
     build:
       context: ./rust-core
       dockerfile: Dockerfile
+      args:
+        RUST_VERSION: 1.75
+    container_name: ultra-siem-rust-core
+    restart: unless-stopped
     environment:
-      - NATS_URL=nats://nats:4222
-      - RUST_LOG=info
-    deploy:
-      resources:
-        limits:
-          cpus: "2.00"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
+      RUST_LOG: info
+      NATS_URL: nats://nats:4222
+      CLICKHOUSE_URL: http://clickhouse:8123
     depends_on:
       nats:
         condition: service_healthy
-    restart: unless-stopped
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "ultra-siem"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  processor:
+  go-bridge:
     build:
       context: ./go-services
       dockerfile: Dockerfile
+    container_name: ultra-siem-go-bridge
+    restart: unless-stopped
     environment:
-      - GOMAXPROCS=4
-      - GOGC=100
-      - NATS_URL=nats://nats:4222
-      - CLICKHOUSE_URL=http://clickhouse:8123
-    deploy:
-      resources:
-        limits:
-          cpus: "2.00"
-          memory: 4G
-        reservations:
-          cpus: "0.5"
-          memory: 1G
+      NATS_URL: nats://nats:4222
+      CLICKHOUSE_URL: http://clickhouse:8123
     depends_on:
       nats:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
-    restart: unless-stopped
-
-  query-engine:
-    build:
-      context: ./zig-query
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      - CLICKHOUSE_URL=http://clickhouse:8123
     deploy:
       resources:
         limits:
-          cpus: "2.00"
-          memory: 2G
+          memory: 1G
+          cpus: "0.5"
         reservations:
-          cpus: "0.25"
           memory: 512M
+          cpus: "0.25"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  zig-query:
+    build:
+      context: ./zig-query
+      dockerfile: Dockerfile
+    container_name: ultra-siem-zig-query
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
     depends_on:
       clickhouse:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.5"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "zig-query"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  monitoring:
+    image: prom/prometheus:latest
+    container_name: ultra-siem-prometheus
     restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.5"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
 
 volumes:
-  nats_data:
-  grafana_data:
   clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+  nats_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+networks:
+  default:
+    name: ultra-siem-network
+    driver: bridge
