@@ -1,0 +1,217 @@
+name: ⚡ Performance Benchmarks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run performance tests daily at 4 AM UTC
+    - cron: "0 4 * * *"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-benchmarks:
+    name: 🦀 Rust Performance Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🦀 Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: 📦 Cache Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-core/target
+          key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: ⚡ Run Cargo Benchmarks
+        run: |
+          cd rust-core
+          cargo bench --features "benchmark" -- --output-format json | tee benchmark_results.json
+
+      - name: 📊 Process Benchmark Results
+        run: |
+          cd rust-core
+          python3 -c "
+          import json
+          import sys
+
+          # Load benchmark results
+          with open('benchmark_results.json', 'r') as f:
+              data = json.load(f)
+
+          # Process and format results
+          results = []
+          for test in data.get('tests', []):
+              name = test.get('name', '')
+              if 'bench' in name:
+                  ns_per_iter = test.get('bench', {}).get('ns_per_iter', 0)
+                  results.append({
+                      'name': name,
+                      'value': ns_per_iter,
+                      'unit': 'ns/iter'
+                  })
+
+          # Save processed results
+          with open('processed_benchmarks.json', 'w') as f:
+              json.dump({'benchmarks': results}, f, indent=2)
+          "
+
+      - name: 📤 Upload Benchmark Results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: "customSmallerIsBetter"
+          output-file-path: rust-core/processed_benchmarks.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+
+  go-benchmarks:
+    name: 🐹 Go Performance Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐹 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.22"
+
+      - name: ⚡ Run Go Benchmarks
+        run: |
+          cd go-services
+          go test -bench=. -benchmem -count=3 -run=^$ ./... | tee benchmark_results.txt
+
+      - name: 📊 Parse Go Benchmark Results
+        run: |
+          cd go-services
+          go install golang.org/x/perf/cmd/benchstat@latest
+          benchstat benchmark_results.txt > benchmark_summary.txt
+
+      - name: 📤 Store Benchmark Results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: "go"
+          output-file-path: go-services/benchmark_results.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+
+  load-testing:
+    name: 🚀 Load Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup Test Environment
+        run: |
+          docker-compose -f docker-compose.simple.yml up -d
+
+          # Wait for services to be ready
+          timeout 300s bash -c 'until curl -f http://localhost:8123/ping; do sleep 5; done'
+          timeout 300s bash -c 'until curl -f http://localhost:3000/api/health; do sleep 5; done'
+
+      - name: 📦 Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: 🚀 Run Load Tests
+        run: |
+          k6 run --out json=loadtest_results.json scripts/load_test.js || true
+
+      - name: 📊 Process Load Test Results
+        run: |
+          python3 -c "
+          import json
+          import statistics
+
+          # Load k6 results
+          with open('loadtest_results.json', 'r') as f:
+              lines = f.readlines()
+
+          http_reqs = []
+          for line in lines:
+              try:
+                  data = json.loads(line)
+                  if data.get('type') == 'Point' and data.get('metric') == 'http_req_duration':
+                      http_reqs.append(data.get('data', {}).get('value', 0))
+              except:
+                  continue
+
+          if http_reqs:
+              results = {
+                  'mean_response_time': statistics.mean(http_reqs),
+                  'median_response_time': statistics.median(http_reqs),
+                  'p95_response_time': sorted(http_reqs)[int(len(http_reqs) * 0.95)],
+                  'total_requests': len(http_reqs)
+              }
+              
+              with open('loadtest_summary.json', 'w') as f:
+                  json.dump(results, f, indent=2)
+              
+              print(f'Load Test Results:')
+              print(f'Total Requests: {results[\"total_requests\"]}')
+              print(f'Mean Response Time: {results[\"mean_response_time\"]:.2f}ms')
+              print(f'95th Percentile: {results[\"p95_response_time\"]:.2f}ms')
+          "
+
+      - name: 📤 Upload Load Test Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: load-test-results
+          path: |
+            loadtest_results.json
+            loadtest_summary.json
+
+      - name: 📋 Cleanup
+        if: always()
+        run: docker-compose -f docker-compose.simple.yml down -v
+
+  memory-profiling:
+    name: 🧠 Memory Profiling
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup Environment
+        run: |
+          docker-compose -f docker-compose.simple.yml up -d
+          timeout 300s bash -c 'until curl -f http://localhost:8123/ping; do sleep 5; done'
+
+      - name: 📊 Memory Usage Analysis
+        run: |
+          # Monitor memory usage for 60 seconds
+          for i in {1..12}; do
+            docker stats --no-stream --format "table {{.Container}}\t{{.MemUsage}}\t{{.CPUPerc}}" >> memory_stats.txt
+            sleep 5
+          done
+
+      - name: 📤 Upload Memory Profile
+        uses: actions/upload-artifact@v3
+        with:
+          name: memory-profile
+          path: memory_stats.txt
+
+      - name: 📋 Cleanup
+        if: always()
+        run: docker-compose -f docker-compose.simple.yml down -v

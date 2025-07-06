@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MLThreatPrediction {
@@ -26,7 +26,6 @@ pub struct FeatureVector {
     pub user_agent_entropy: f64,
 }
 
-#[derive(Debug)]
 pub struct MLEngine {
     models: HashMap<String, MLModel>,
     feature_extractors: Vec<Box<dyn FeatureExtractor>>,
@@ -39,7 +38,7 @@ pub struct MLModel {
     pub version: String,
     pub model_type: ModelType,
     pub accuracy: f64,
-    pub last_trained: chrono::DateTime<chrono::Utc>,
+    pub last_trained: u64,
     pub weights: Vec<f64>,
     pub thresholds: HashMap<String, f64>,
 }
@@ -63,7 +62,7 @@ pub trait FeatureExtractor: Send + Sync {
 pub struct EventMetadata {
     pub source_ip: String,
     pub user_agent: Option<String>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: u64,
     pub request_method: Option<String>,
     pub url_path: Option<String>,
     pub headers: HashMap<String, String>,
@@ -89,7 +88,7 @@ impl MLEngine {
             version: "2.1.0".to_string(),
             model_type: ModelType::RandomForest,
             accuracy: 0.987,
-            last_trained: chrono::Utc::now(),
+            last_trained: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
             weights: vec![
                 0.25, 0.18, 0.31, 0.12, 0.08, 0.06  // Feature weights
             ],
@@ -108,7 +107,7 @@ impl MLEngine {
             version: "1.8.2".to_string(),
             model_type: ModelType::NeuralNetwork,
             accuracy: 0.954,
-            last_trained: chrono::Utc::now(),
+            last_trained: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
             weights: vec![
                 0.22, 0.28, 0.15, 0.35  // Neural network weights (simplified)
             ],
@@ -127,7 +126,7 @@ impl MLEngine {
             version: "3.0.1".to_string(),
             model_type: ModelType::SVM,
             accuracy: 0.923,
-            last_trained: chrono::Utc::now(),
+            last_trained: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
             weights: vec![
                 0.15, 0.20, 0.18, 0.12, 0.25, 0.10
             ],
@@ -146,7 +145,7 @@ impl MLEngine {
             version: "1.0.0-beta".to_string(),
             model_type: ModelType::DeepLearning,
             accuracy: 0.991,
-            last_trained: chrono::Utc::now(),
+            last_trained: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
             weights: vec![
                 0.18, 0.22, 0.16, 0.28, 0.08, 0.08
             ],
@@ -233,8 +232,7 @@ impl MLEngine {
     async fn run_model(&self, model: &MLModel, features: &FeatureVector, model_name: &str) -> MLThreatPrediction {
         let start_time = std::time::Instant::now();
         
-        // Simulate ML model inference (in practice, this would call actual ML libraries)
-        let confidence = match model.model_type {
+        let prediction = match model.model_type {
             ModelType::RandomForest => self.run_random_forest(model, features),
             ModelType::NeuralNetwork => self.run_neural_network(model, features),
             ModelType::SVM => self.run_svm(model, features),
@@ -243,212 +241,163 @@ impl MLEngine {
             ModelType::Ensemble => self.run_ensemble(model, features),
         };
         
-        let threat_type = self.determine_threat_type(model_name, confidence);
-        let severity = self.calculate_severity(confidence);
+        let prediction_time = start_time.elapsed().as_millis() as u64;
         
         MLThreatPrediction {
-            threat_type,
-            confidence,
-            severity,
-            features_used: vec![
-                "request_length".to_string(),
-                "special_char_ratio".to_string(),
-                "sql_keyword_count".to_string(),
-                "script_tag_count".to_string(),
-                "entropy".to_string(),
-            ],
+            threat_type: self.determine_threat_type(model_name, prediction),
+            confidence: prediction,
+            severity: self.calculate_severity(prediction),
+            features_used: vec![model_name.to_string()],
             model_version: model.version.clone(),
-            prediction_time_ms: start_time.elapsed().as_millis() as u64,
+            prediction_time_ms: prediction_time,
         }
     }
     
     fn run_random_forest(&self, model: &MLModel, features: &FeatureVector) -> f64 {
         // Simplified Random Forest implementation
-        let feature_values = vec![
-            features.request_length,
-            features.special_char_ratio,
-            features.sql_keyword_count,
-            features.script_tag_count,
-            features.entropy,
-            features.ip_reputation_score,
-        ];
+        let mut prediction: f64 = 0.0;
         
-        let mut weighted_sum = 0.0;
-        for (i, &weight) in model.weights.iter().enumerate() {
-            if i < feature_values.len() {
-                weighted_sum += weight * feature_values[i];
-            }
-        }
+        // Weighted feature combination
+        prediction += features.request_length * model.weights.get(0).unwrap_or(&0.0);
+        prediction += features.special_char_ratio * model.weights.get(1).unwrap_or(&0.0);
+        prediction += features.sql_keyword_count * model.weights.get(2).unwrap_or(&0.0);
+        prediction += features.script_tag_count * model.weights.get(3).unwrap_or(&0.0);
+        prediction += features.entropy * model.weights.get(4).unwrap_or(&0.0);
+        prediction += features.ip_reputation_score * model.weights.get(5).unwrap_or(&0.0);
         
-        // Apply sigmoid activation
-        1.0 / (1.0 + (-weighted_sum).exp())
+        prediction.min(1.0)
     }
     
     fn run_neural_network(&self, model: &MLModel, features: &FeatureVector) -> f64 {
         // Simplified Neural Network implementation
-        let input = vec![
-            features.script_tag_count,
-            features.special_char_ratio,
-            features.entropy,
-            features.user_agent_entropy,
-        ];
+        let mut prediction: f64 = 0.0;
         
-        let mut output = 0.0;
-        for (i, &weight) in model.weights.iter().enumerate() {
-            if i < input.len() {
-                output += weight * input[i].tanh(); // Tanh activation
-            }
-        }
+        // Feed-forward computation
+        prediction += features.request_length * model.weights.get(0).unwrap_or(&0.0);
+        prediction += features.special_char_ratio * model.weights.get(1).unwrap_or(&0.0);
+        prediction += features.sql_keyword_count * model.weights.get(2).unwrap_or(&0.0);
+        prediction += features.script_tag_count * model.weights.get(3).unwrap_or(&0.0);
         
-        output.max(0.0).min(1.0) // Clamp to [0, 1]
+        // Activation function (sigmoid)
+        prediction = 1.0 / (1.0 + (-prediction).exp());
+        prediction
     }
     
     fn run_svm(&self, model: &MLModel, features: &FeatureVector) -> f64 {
         // Simplified SVM implementation
-        let feature_vector = vec![
-            features.request_frequency,
-            features.time_of_day,
-            features.geo_risk_score,
-            features.ip_reputation_score,
-            features.entropy,
-            features.special_char_ratio,
-        ];
+        let mut prediction: f64 = 0.0;
         
-        let mut decision_value = 0.0;
-        for (i, &weight) in model.weights.iter().enumerate() {
-            if i < feature_vector.len() {
-                decision_value += weight * feature_vector[i];
-            }
-        }
+        // Kernel computation (linear kernel)
+        prediction += features.request_length * model.weights.get(0).unwrap_or(&0.0);
+        prediction += features.special_char_ratio * model.weights.get(1).unwrap_or(&0.0);
+        prediction += features.sql_keyword_count * model.weights.get(2).unwrap_or(&0.0);
+        prediction += features.script_tag_count * model.weights.get(3).unwrap_or(&0.0);
+        prediction += features.entropy * model.weights.get(4).unwrap_or(&0.0);
+        prediction += features.ip_reputation_score * model.weights.get(5).unwrap_or(&0.0);
         
-        // Convert SVM decision value to probability
-        1.0 / (1.0 + (-decision_value).exp())
+        // Decision function
+        prediction.min(1.0).max(0.0)
     }
     
     fn run_xgboost(&self, _model: &MLModel, features: &FeatureVector) -> f64 {
-        // Simplified XGBoost-like gradient boosting
-        let mut prediction = 0.0;
+        // Simplified XGBoost implementation
+        let mut prediction: f64 = 0.0;
         
-        // Tree 1: Focus on SQL patterns
-        if features.sql_keyword_count > 2.0 {
-            prediction += 0.3;
-        }
-        
-        // Tree 2: Focus on script patterns
-        if features.script_tag_count > 0.0 {
-            prediction += 0.25;
-        }
-        
-        // Tree 3: Focus on entropy
-        if features.entropy > 4.5 {
-            prediction += 0.2;
-        }
-        
-        // Tree 4: Combined features
-        if features.special_char_ratio > 0.1 && features.request_length > 100.0 {
-            prediction += 0.25;
-        }
+        // Gradient boosting computation
+        prediction += features.request_length * 0.3;
+        prediction += features.special_char_ratio * 0.25;
+        prediction += features.sql_keyword_count * 0.2;
+        prediction += features.script_tag_count * 0.15;
+        prediction += features.entropy * 0.1;
         
         prediction.min(1.0)
     }
     
     fn run_deep_learning(&self, model: &MLModel, features: &FeatureVector) -> f64 {
-        // Simplified deep learning model (multi-layer)
-        let layer1_input = vec![
-            features.request_length / 1000.0, // Normalize
-            features.special_char_ratio,
-            features.entropy / 8.0, // Normalize entropy
-        ];
+        // Simplified Deep Learning implementation
+        let mut prediction: f64 = 0.0;
         
-        // Layer 1: Hidden layer with ReLU activation
-        let mut layer1_output = Vec::new();
-        for (i, &input) in layer1_input.iter().enumerate() {
-            let weight = model.weights.get(i).unwrap_or(&0.5);
-            layer1_output.push((input * weight).max(0.0)); // ReLU
-        }
+        // Multi-layer computation (simplified)
+        prediction += features.request_length * model.weights.get(0).unwrap_or(&0.0);
+        prediction += features.special_char_ratio * model.weights.get(1).unwrap_or(&0.0);
+        prediction += features.sql_keyword_count * model.weights.get(2).unwrap_or(&0.0);
+        prediction += features.script_tag_count * model.weights.get(3).unwrap_or(&0.0);
+        prediction += features.entropy * model.weights.get(4).unwrap_or(&0.0);
+        prediction += features.ip_reputation_score * model.weights.get(5).unwrap_or(&0.0);
         
-        // Layer 2: Output layer with sigmoid
-        let mut final_output = 0.0;
-        for (i, &output) in layer1_output.iter().enumerate() {
-            let weight = model.weights.get(i + 3).unwrap_or(&0.3);
-            final_output += output * weight;
-        }
+        // Non-linear transformation
+        prediction = prediction.tanh();
+        prediction = (prediction + 1.0) / 2.0; // Normalize to [0, 1]
         
-        1.0 / (1.0 + (-final_output).exp()) // Sigmoid
+        prediction
     }
     
     fn run_ensemble(&self, _model: &MLModel, _features: &FeatureVector) -> f64 {
-        // Ensemble prediction is handled separately
-        0.0
+        // Ensemble method (average of all models)
+        0.75 // Placeholder
     }
     
     fn create_ensemble_prediction(&self, predictions: &[MLThreatPrediction], total_time_ms: u64) -> MLThreatPrediction {
         let mut weighted_confidence = 0.0;
-        let mut max_severity = 0;
+        let mut total_weight = 0.0;
         
         for prediction in predictions {
-            if let Some(&weight) = self.ensemble_weights.get(&prediction.threat_type) {
-                weighted_confidence += prediction.confidence * weight;
-                max_severity = max_severity.max(prediction.severity);
-            }
+            let weight = self.ensemble_weights.get(&prediction.threat_type).unwrap_or(&0.25);
+            weighted_confidence += prediction.confidence * weight;
+            total_weight += weight;
         }
         
+        let ensemble_confidence = if total_weight > 0.0 {
+            weighted_confidence / total_weight
+        } else {
+            0.5
+        };
+        
         MLThreatPrediction {
-            threat_type: "ensemble_prediction".to_string(),
-            confidence: weighted_confidence,
-            severity: max_severity,
-            features_used: vec![
-                "multi_model_ensemble".to_string(),
-                "weighted_voting".to_string(),
-                "confidence_aggregation".to_string(),
-            ],
-            model_version: "ensemble_v2.0".to_string(),
+            threat_type: "ensemble".to_string(),
+            confidence: ensemble_confidence,
+            severity: self.calculate_severity(ensemble_confidence),
+            features_used: predictions.iter().map(|p| p.threat_type.clone()).collect(),
+            model_version: "ensemble_v1.0".to_string(),
             prediction_time_ms: total_time_ms,
         }
     }
     
     fn determine_threat_type(&self, model_name: &str, confidence: f64) -> String {
-        match model_name {
-            "sql_injection" if confidence > 0.7 => "SQL Injection".to_string(),
-            "xss" if confidence > 0.6 => "Cross-Site Scripting".to_string(),
-            "anomaly" if confidence > 0.8 => "Behavioral Anomaly".to_string(),
-            "advanced_threats" if confidence > 0.85 => "Advanced Persistent Threat".to_string(),
-            _ => "Low Risk".to_string(),
+        if confidence > 0.8 {
+            format!("high_confidence_{}", model_name)
+        } else if confidence > 0.6 {
+            format!("medium_confidence_{}", model_name)
+        } else {
+            format!("low_confidence_{}", model_name)
         }
     }
     
     fn calculate_severity(&self, confidence: f64) -> u8 {
-        match confidence {
-            c if c >= 0.9 => 5, // Critical
-            c if c >= 0.7 => 4, // High
-            c if c >= 0.5 => 3, // Medium
-            c if c >= 0.3 => 2, // Low
-            _ => 1,             // Very Low
-        }
+        if confidence > 0.9 { 5 }
+        else if confidence > 0.8 { 4 }
+        else if confidence > 0.7 { 3 }
+        else if confidence > 0.6 { 2 }
+        else { 1 }
     }
     
-    pub async fn retrain_model(&mut self, model_name: &str, training_data: Vec<(FeatureVector, bool)>) -> Result<(), String> {
+    pub fn train_model(&mut self, model_name: &str, _training_data: Vec<(FeatureVector, bool)>) -> Result<(), String> {
         if let Some(model) = self.models.get_mut(model_name) {
-            // Simulate model retraining
-            println!("🤖 Retraining model: {} with {} samples", model_name, training_data.len());
-            
-            // Update last trained timestamp
-            model.last_trained = chrono::Utc::now();
-            
-            // Simulate accuracy improvement
-            model.accuracy = (model.accuracy + 0.001).min(0.999);
-            
-            println!("✅ Model {} retrained. New accuracy: {:.3}", model_name, model.accuracy);
+            // Simplified retraining - in practice, you'd implement actual ML training
+            model.accuracy += 0.01; // Simulate improvement
+            model.last_trained = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             Ok(())
         } else {
             Err(format!("Model {} not found", model_name))
         }
     }
     
-    pub fn get_model_stats(&self) -> HashMap<String, (f64, chrono::DateTime<chrono::Utc>)> {
-        self.models.iter()
-            .map(|(name, model)| (name.clone(), (model.accuracy, model.last_trained)))
-            .collect()
+    pub fn get_model_stats(&self) -> HashMap<String, (f64, u64)> {
+        let mut stats = HashMap::new();
+        for (name, model) in &self.models {
+            stats.insert(name.clone(), (model.accuracy, model.last_trained));
+        }
+        stats
     }
 }
 
@@ -457,40 +406,24 @@ struct PayloadAnalyzer;
 
 impl FeatureExtractor for PayloadAnalyzer {
     fn extract(&self, payload: &str, _metadata: &EventMetadata) -> FeatureVector {
-        let length = payload.len() as f64;
-        let special_chars = payload.chars().filter(|c| "!@#$%^&*()[]{}|\\:;\"'<>?".contains(*c)).count() as f64;
-        let special_char_ratio = special_chars / length.max(1.0);
-        
-        let sql_keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "UNION", "OR", "AND"];
-        let sql_count = sql_keywords.iter()
-            .map(|&keyword| payload.to_uppercase().matches(keyword).count())
-            .sum::<usize>() as f64;
-        
-        let script_count = payload.matches("<script").count() as f64;
-        
-        // Calculate Shannon entropy
-        let mut char_freq = std::collections::HashMap::new();
-        for c in payload.chars() {
-            *char_freq.entry(c).or_insert(0) += 1;
-        }
-        let entropy = char_freq.values()
-            .map(|&freq| {
-                let p = freq as f64 / length;
-                -p * p.log2()
-            })
-            .sum::<f64>();
+        let request_length = payload.len() as f64;
+        let special_char_ratio = payload.chars().filter(|c| !c.is_alphanumeric()).count() as f64 / request_length;
+        let sql_keyword_count = payload.to_lowercase().matches("select").count() as f64 +
+                               payload.to_lowercase().matches("union").count() as f64 +
+                               payload.to_lowercase().matches("drop").count() as f64;
+        let script_tag_count = payload.to_lowercase().matches("<script").count() as f64;
         
         FeatureVector {
-            request_length: length,
+            request_length,
             special_char_ratio,
-            sql_keyword_count: sql_count,
-            script_tag_count: script_count,
-            entropy,
-            ip_reputation_score: 0.5, // Placeholder
-            geo_risk_score: 0.3,      // Placeholder
-            time_of_day: 0.0,         // Placeholder
-            request_frequency: 0.0,    // Placeholder
-            user_agent_entropy: 0.0,   // Placeholder
+            sql_keyword_count,
+            script_tag_count,
+            entropy: 0.0, // Will be calculated by BehavioralAnalyzer
+            ip_reputation_score: 0.0, // Will be calculated by NetworkAnalyzer
+            geo_risk_score: 0.0,
+            time_of_day: 0.0,
+            request_frequency: 0.0,
+            user_agent_entropy: 0.0,
         }
     }
     
@@ -503,11 +436,8 @@ struct NetworkAnalyzer;
 
 impl FeatureExtractor for NetworkAnalyzer {
     fn extract(&self, _payload: &str, metadata: &EventMetadata) -> FeatureVector {
-        // Simulate IP reputation lookup
-        let ip_reputation = self.calculate_ip_reputation(&metadata.source_ip);
-        
-        // Simulate geo risk calculation
-        let geo_risk = self.calculate_geo_risk(&metadata.source_ip);
+        let ip_reputation_score = self.calculate_ip_reputation(&metadata.source_ip);
+        let geo_risk_score = self.calculate_geo_risk(&metadata.source_ip);
         
         FeatureVector {
             request_length: 0.0,
@@ -515,10 +445,10 @@ impl FeatureExtractor for NetworkAnalyzer {
             sql_keyword_count: 0.0,
             script_tag_count: 0.0,
             entropy: 0.0,
-            ip_reputation_score: ip_reputation,
-            geo_risk_score: geo_risk,
-            time_of_day: metadata.timestamp.hour() as f64 / 24.0,
-            request_frequency: 0.0, // Would be calculated from historical data
+            ip_reputation_score,
+            geo_risk_score,
+            time_of_day: 0.0,
+            request_frequency: 0.0,
             user_agent_entropy: 0.0,
         }
     }
@@ -530,21 +460,20 @@ impl FeatureExtractor for NetworkAnalyzer {
 
 impl NetworkAnalyzer {
     fn calculate_ip_reputation(&self, ip: &str) -> f64 {
-        // Simulate IP reputation scoring
-        match ip {
-            ip if ip.starts_with("192.168.") => 0.9, // Local network - high trust
-            ip if ip.starts_with("10.") => 0.9,      // Private network
-            ip if ip.starts_with("203.0.113.") => 0.1, // TEST-NET-3 (suspicious for demo)
-            _ => 0.6, // Default reputation
+        // Simplified IP reputation calculation
+        if ip.contains("192.168.") || ip.contains("10.") || ip.contains("172.") {
+            0.1 // Low risk for private IPs
+        } else {
+            0.5 // Medium risk for public IPs
         }
     }
     
     fn calculate_geo_risk(&self, ip: &str) -> f64 {
-        // Simulate geolocation risk scoring
-        match ip {
-            ip if ip.starts_with("192.168.") => 0.1, // Local - low risk
-            ip if ip.starts_with("203.0.113.") => 0.8, // High risk for demo
-            _ => 0.4, // Medium risk
+        // Simplified geographic risk calculation
+        if ip.contains("192.168.1.") {
+            0.2 // Low risk for local network
+        } else {
+            0.6 // Higher risk for external
         }
     }
 }
@@ -553,24 +482,20 @@ struct BehavioralAnalyzer;
 
 impl FeatureExtractor for BehavioralAnalyzer {
     fn extract(&self, payload: &str, metadata: &EventMetadata) -> FeatureVector {
-        let user_agent_entropy = if let Some(ua) = &metadata.user_agent {
-            self.calculate_entropy(ua)
-        } else {
-            0.0
-        };
-        
-        // Simulate request frequency analysis
+        let entropy = self.calculate_entropy(payload);
+        let time_of_day = (metadata.timestamp % 86400) as f64 / 86400.0; // Normalize to [0, 1]
         let request_frequency = self.calculate_request_frequency(&metadata.source_ip);
+        let user_agent_entropy = metadata.user_agent.as_ref().map_or(0.0, |ua| self.calculate_entropy(ua));
         
         FeatureVector {
-            request_length: payload.len() as f64,
+            request_length: 0.0,
             special_char_ratio: 0.0,
             sql_keyword_count: 0.0,
             script_tag_count: 0.0,
-            entropy: 0.0,
+            entropy,
             ip_reputation_score: 0.0,
             geo_risk_score: 0.0,
-            time_of_day: 0.0,
+            time_of_day,
             request_frequency,
             user_agent_entropy,
         }
@@ -583,23 +508,20 @@ impl FeatureExtractor for BehavioralAnalyzer {
 
 impl BehavioralAnalyzer {
     fn calculate_entropy(&self, text: &str) -> f64 {
-        let mut char_freq = std::collections::HashMap::new();
-        for c in text.chars() {
-            *char_freq.entry(c).or_insert(0) += 1;
+        let mut char_counts = HashMap::new();
+        for ch in text.chars() {
+            *char_counts.entry(ch).or_insert(0) += 1;
         }
         
-        let length = text.len() as f64;
-        char_freq.values()
-            .map(|&freq| {
-                let p = freq as f64 / length;
-                -p * p.log2()
-            })
-            .sum::<f64>()
+        let len = text.len() as f64;
+        char_counts.values().map(|&count| {
+            let p = count as f64 / len;
+            -p * p.log2()
+        }).sum()
     }
     
     fn calculate_request_frequency(&self, _ip: &str) -> f64 {
-        // Simulate request frequency calculation
-        // In practice, this would query historical data
+        // Simplified request frequency calculation
         0.5 // Placeholder
     }
 } 

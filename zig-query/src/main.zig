@@ -126,4 +126,13 @@ pub fn main() !void {
     print("🎯 Query engine ready for production workloads\n", .{});
     print("   Expected throughput: 42GB/s with AVX-512\n", .{});
     print("   Memory usage: < 100MB per query\n", .{});
+    
+    // Keep the service running
+    print("🔄 Query engine running in continuous mode...\n", .{});
+    while (true) {
+        // In a real implementation, this would listen for query requests
+        // For now, simulate periodic activity
+        std.time.sleep(10 * std.time.ns_per_s); // Sleep for 10 seconds
+        print("📊 Query engine status: Active, ready for queries\n", .{});
+    }
 } 

@@ -101,13 +101,13 @@ func NewSIEMProcessor() (*SIEMProcessor, error) {
 	}
 
 	// Connect to ClickHouse
-	clickhouseURL := getEnv("CLICKHOUSE_URL", "http://localhost:8123")
+	clickhouseHost := getEnv("CLICKHOUSE_HOST", "clickhouse:9000")
 	ch, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{clickhouseURL},
+		Addr: []string{clickhouseHost},
 		Auth: clickhouse.Auth{
 			Database: "siem",
 			Username: "admin",
-			Password: "ultra_secure_ch_2024",
+			Password: "admin123",
 		},
 		Settings: clickhouse.Settings{
 			"max_execution_time": 60,

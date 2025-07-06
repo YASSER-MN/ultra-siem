@@ -1,0 +1,149 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🏢 Executive Security Overview",
+    "tags": ["executive", "kpi", "security"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "5m",
+    "time": { "from": "now-24h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🛡️ Security Score",
+        "type": "gauge",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(100 - (countIf(severity IN ('HIGH', 'CRITICAL')) * 100.0 / count()), 1) as security_score FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "📊 Threat Trend (24h vs Previous 24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as current_threats FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as previous_threats FROM siem.threats WHERE event_time >= now() - INTERVAL 48 HOUR AND event_time < now() - INTERVAL 24 HOUR",
+            "refId": "B"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": { "displayMode": "basic" }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "🚨 Critical Alerts",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as critical_threats FROM siem.threats WHERE severity = 'CRITICAL' AND event_time >= now() - INTERVAL 24 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "red" },
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "red", "value": 1 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "🌍 Global Threat Map",
+        "type": "piechart",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT geo_country, count() as threats FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR AND geo_country != 'Unknown' GROUP BY geo_country ORDER BY threats DESC LIMIT 10",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+      },
+      {
+        "id": 5,
+        "title": "📈 Threat Timeline",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfHour(event_time) as time, countIf(severity = 'CRITICAL') as critical, countIf(severity = 'HIGH') as high, countIf(severity = 'MEDIUM') as medium FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+      },
+      {
+        "id": 6,
+        "title": "🎯 Top 5 Attack Types",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT threat_type as 'Attack Type', count() as 'Count', round(avg(confidence_score), 2) as 'Avg Confidence' FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY threat_type ORDER BY count() DESC LIMIT 5",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 16 }
+      }
+    ]
+  }
+}

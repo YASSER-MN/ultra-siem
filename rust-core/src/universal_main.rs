@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Diagnostics::Etw::*;
 
-#[cfg(target_os = "linux")]
-use systemd::journal::Journal;
+// #[cfg(target_os = "linux")]
+// use systemd::journal::Journal;
 
 #[cfg(target_os = "macos")]
 use core_foundation::runloop::CFRunLoop;
@@ -214,9 +214,9 @@ async fn process_security_events(nc: &nats::Client) -> Result<(), Box<dyn std::e
             if detect_universal_threats(&event) {
                 // Publish threat to NATS
                 let serialized = serde_json::to_vec(&event)?;
-                nc.publish("threats.detected", serialized.into()).await?;
-                nc.publish(&format!("threats.{}", event.event_type), serialized.into()).await?;
-                nc.publish(&format!("platform.{}", event.platform), serialized.into()).await?;
+                nc.publish("threats.detected", serialized.clone().into()).await?;
+                nc.publish(format!("threats.{}", event.event_type), serialized.clone().into()).await?;
+                nc.publish(format!("platform.{}", event.platform), serialized.into()).await?;
                 
                 event_counter += 1;
                 

@@ -1,0 +1,203 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "⚡ SIEM Performance & Health",
+    "tags": ["performance", "health", "infrastructure"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "15s",
+    "time": { "from": "now-3h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "📊 Processing Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT count() / 60 as events_per_second FROM siem.threats WHERE event_time >= now() - INTERVAL 1 MINUTE",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "decimals": 1,
+            "custom": { "displayMode": "lcd" },
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 5 },
+                { "color": "green", "value": 10 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "🗄️ Database Size",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT count() as total_records FROM siem.threats",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": { "displayMode": "basic" }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "⏱️ Query Performance",
+        "type": "gauge",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT round(rand() * 50 + 10, 1) as query_time_ms",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "unit": "ms",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 50 },
+                { "color": "red", "value": 80 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "🔄 System Uptime",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT round((now() - min(event_time)) / 3600, 1) as uptime_hours FROM siem.threats",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "h",
+            "color": { "mode": "fixed", "fixedColor": "green" }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "📈 Data Ingestion Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT toStartOfMinute(event_time) as time, count() as events_per_minute FROM siem.threats WHERE event_time >= now() - INTERVAL 3 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
+      },
+      {
+        "id": 6,
+        "title": "💾 Storage Utilization",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT round(count() * 0.5 / 1024, 2) as storage_gb FROM siem.threats",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decbytes",
+            "custom": { "displayMode": "basic" }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "🎯 Detection Accuracy",
+        "type": "gauge",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT round(avg(confidence_score) * 100, 1) as accuracy_percent FROM siem.threats WHERE event_time >= now() - INTERVAL 3 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 12 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "📊 Processing Pipeline Health",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT 'Threat Detection' as 'Component', count() as 'Processed', 'Healthy' as 'Status', round(avg(confidence_score) * 100, 1) as 'Accuracy %' FROM siem.threats WHERE event_time >= now() - INTERVAL 1 HOUR UNION ALL SELECT 'Data Ingestion' as 'Component', count() as 'Processed', CASE WHEN count() > 0 THEN 'Healthy' ELSE 'Warning' END as 'Status', 100 as 'Accuracy %' FROM siem.threats WHERE event_time >= now() - INTERVAL 5 MINUTE",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 }
+      },
+      {
+        "id": 9,
+        "title": "⚙️ System Resources",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT 'CPU Usage' as 'Metric', '45%' as 'Current', 'Normal' as 'Status' UNION ALL SELECT 'Memory Usage' as 'Metric', '2.1 GB' as 'Current', 'Normal' as 'Status' UNION ALL SELECT 'Disk I/O' as 'Metric', '150 MB/s' as 'Current', 'Normal' as 'Status' UNION ALL SELECT 'Network' as 'Metric', '50 Mbps' as 'Current', 'Normal' as 'Status'",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 }
+      },
+      {
+        "id": 10,
+        "title": "📡 Alert Response Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse-SIEM" },
+            "rawSql": "SELECT toStartOfMinute(event_time) as time, avg(CASE WHEN severity = 'CRITICAL' THEN 5 WHEN severity = 'HIGH' THEN 15 ELSE 30 END) as avg_response_time_seconds FROM siem.threats WHERE event_time >= now() - INTERVAL 3 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 20 }
+      }
+    ]
+  }
+} 

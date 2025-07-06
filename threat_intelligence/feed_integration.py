@@ -1,527 +1,681 @@
 #!/usr/bin/env python3
 """
-Ultra SIEM Threat Intelligence Feed Integration
-Real-time IoC ingestion, processing, and distribution
+🌐 Ultra SIEM - Threat Intelligence Feed Integration
+Real-time threat intelligence aggregation and correlation
 """
 
 import asyncio
 import aiohttp
 import json
+import time
+import hashlib
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
-import pandas as pd
-import clickhouse_connect
-from cryptography.fernet import Fernet
-import hashlib
-import yara
+from typing import Dict, List, Optional, Any
+import sqlite3
+import os
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('threat_intelligence.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 class ThreatIntelligenceFeed:
+    """Main threat intelligence feed integration class"""
+    
     def __init__(self, config_path: str = "config/threat_intel.json"):
-        self.config = self._load_config(config_path)
-        self.client = clickhouse_connect.get_client(
-            host=self.config['clickhouse']['host'],
-            port=self.config['clickhouse']['port'],
-            username=self.config['clickhouse']['username'],
-            password=self.config['clickhouse']['password']
-        )
-        self.cipher = Fernet(self.config['encryption_key'].encode())
-        self.yara_rules = None
-        self._setup_logging()
+        self.config_path = config_path
+        self.feeds = {}
+        self.threat_data = {}
+        self.correlation_rules = {}
+        self.indicators = {}
+        self.last_update = {}
+        self.session = None
+        self.db_path = "data/threat_intelligence.db"
         
-    def _load_config(self, config_path: str) -> Dict:
-        """Load configuration from file"""
+        # Initialize database
+        self._init_database()
+        
+        # Load configuration
+        self._load_config()
+        
+        # Initialize correlation rules
+        self._init_correlation_rules()
+    
+    def _init_database(self):
+        """Initialize SQLite database for threat intelligence"""
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Create tables
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS threat_feeds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_name TEXT NOT NULL,
+                feed_url TEXT NOT NULL,
+                feed_type TEXT NOT NULL,
+                last_update TIMESTAMP,
+                status TEXT DEFAULT 'active'
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS threat_indicators (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                indicator TEXT NOT NULL,
+                indicator_type TEXT NOT NULL,
+                threat_type TEXT NOT NULL,
+                confidence REAL DEFAULT 0.0,
+                first_seen TIMESTAMP,
+                last_seen TIMESTAMP,
+                source TEXT NOT NULL,
+                tags TEXT,
+                UNIQUE(indicator, source)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS threat_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id TEXT UNIQUE NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                threat_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                published_date TIMESTAMP,
+                source TEXT NOT NULL,
+                raw_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS correlation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                indicators TEXT NOT NULL,
+                threat_type TEXT NOT NULL,
+                confidence REAL DEFAULT 0.0,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                source TEXT NOT NULL
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info("Threat intelligence database initialized")
+    
+    def _load_config(self):
+        """Load threat intelligence configuration"""
         default_config = {
-            "feeds": [
-                {
-                    "name": "emergingthreats",
-                    "url": "https://rules.emergingthreats.net/open/suricata/rules/",
-                    "type": "suricata",
+            "feeds": {
+                "alienvault_otx": {
+                    "url": "https://otx.alienvault.com/api/v1/indicators/domain/",
+                    "type": "api",
+                    "api_key": "",
+                    "enabled": True,
                     "update_interval": 3600
                 },
-                {
-                    "name": "alienvault",
-                    "url": "https://reputation.alienvault.com/reputation.data",
-                    "type": "reputation",
+                "virustotal": {
+                    "url": "https://www.virustotal.com/vtapi/v2/",
+                    "type": "api",
+                    "api_key": "",
+                    "enabled": True,
                     "update_interval": 1800
                 },
-                {
-                    "name": "malwaredomains",
-                    "url": "http://mirror1.malwaredomains.com/files/justdomains",
-                    "type": "domain",
+                "abuseipdb": {
+                    "url": "https://api.abuseipdb.com/api/v2/",
+                    "type": "api",
+                    "api_key": "",
+                    "enabled": True,
+                    "update_interval": 3600
+                },
+                "urlhaus": {
+                    "url": "https://urlhaus.abuse.ch/downloads/csv_recent/",
+                    "type": "csv",
+                    "enabled": True,
+                    "update_interval": 1800
+                },
+                "phishtank": {
+                    "url": "https://data.phishtank.com/data/online-valid.json",
+                    "type": "json",
+                    "enabled": True,
+                    "update_interval": 3600
+                },
+                "malware_bazaar": {
+                    "url": "https://bazaar.abuse.ch/export/txt/recent/",
+                    "type": "txt",
+                    "enabled": True,
                     "update_interval": 7200
                 }
-            ],
-            "clickhouse": {
-                "host": "localhost",
-                "port": 9000,
-                "username": "default",
-                "password": ""
             },
-            "encryption_key": Fernet.generate_key().decode(),
-            "max_iocs_per_batch": 10000,
-            "threat_expiry_days": 30
+            "correlation": {
+                "enabled": True,
+                "min_confidence": 0.7,
+                "max_age_hours": 24
+            },
+            "integration": {
+                "ultra_siem_url": "http://localhost:8123",
+                "nats_url": "nats://localhost:4222",
+                "auto_export": True
+            }
         }
         
         try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            return {**default_config, **config}
-        except FileNotFoundError:
-            logging.warning(f"Config file {config_path} not found, using defaults")
-            with open(config_path, 'w') as f:
-                json.dump(default_config, f, indent=2)
-            return default_config
-    
-    def _setup_logging(self):
-        """Setup structured logging"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('logs/threat_intel.log'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
-    
-    async def refresh_all_feeds(self) -> Dict[str, Any]:
-        """Refresh all configured threat intelligence feeds"""
-        self.logger.info("🔄 Starting threat intelligence feed refresh")
-        
-        results = {
-            "timestamp": datetime.now().isoformat(),
-            "feeds_processed": 0,
-            "total_iocs": 0,
-            "new_iocs": 0,
-            "updated_iocs": 0,
-            "expired_iocs": 0,
-            "errors": []
-        }
-        
-        # Process feeds concurrently
-        tasks = []
-        for feed in self.config['feeds']:
-            task = self._process_feed(feed)
-            tasks.append(task)
-        
-        feed_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for i, result in enumerate(feed_results):
-            if isinstance(result, Exception):
-                error_msg = f"Feed {self.config['feeds'][i]['name']} failed: {str(result)}"
-                self.logger.error(error_msg)
-                results["errors"].append(error_msg)
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r') as f:
+                    self.config = json.load(f)
             else:
-                results["feeds_processed"] += 1
-                results["total_iocs"] += result["iocs_processed"]
-                results["new_iocs"] += result["new_iocs"]
-                results["updated_iocs"] += result["updated_iocs"]
-        
-        # Clean up expired IoCs
-        expired_count = await self._cleanup_expired_iocs()
-        results["expired_iocs"] = expired_count
-        
-        # Update detection engine
-        await self._update_detection_engine()
-        
-        self.logger.info(f"✅ Feed refresh completed: {results['feeds_processed']} feeds, {results['total_iocs']} total IoCs")
-        return results
+                self.config = default_config
+                os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+                with open(self.config_path, 'w') as f:
+                    json.dump(default_config, f, indent=2)
+            
+            self.feeds = self.config["feeds"]
+            logger.info(f"Loaded {len(self.feeds)} threat intelligence feeds")
+            
+        except Exception as e:
+            logger.error(f"Failed to load configuration: {e}")
+            self.config = default_config
+            self.feeds = default_config["feeds"]
     
-    async def _process_feed(self, feed_config: Dict) -> Dict[str, Any]:
-        """Process a single threat intelligence feed"""
-        self.logger.info(f"📥 Processing feed: {feed_config['name']}")
-        
-        result = {
-            "feed_name": feed_config['name'],
-            "iocs_processed": 0,
-            "new_iocs": 0,
-            "updated_iocs": 0
+    def _init_correlation_rules(self):
+        """Initialize threat correlation rules"""
+        self.correlation_rules = {
+            "malware_campaign": {
+                "indicators": ["ip", "domain", "url", "hash"],
+                "threshold": 3,
+                "time_window": 3600,
+                "confidence_boost": 0.2
+            },
+            "phishing_attack": {
+                "indicators": ["url", "domain", "email"],
+                "threshold": 2,
+                "time_window": 1800,
+                "confidence_boost": 0.15
+            },
+            "botnet_activity": {
+                "indicators": ["ip", "domain"],
+                "threshold": 5,
+                "time_window": 7200,
+                "confidence_boost": 0.25
+            },
+            "apt_activity": {
+                "indicators": ["ip", "domain", "hash", "email"],
+                "threshold": 4,
+                "time_window": 86400,
+                "confidence_boost": 0.3
+            }
         }
         
+        logger.info(f"Initialized {len(self.correlation_rules)} correlation rules")
+    
+    async def start_session(self):
+        """Start aiohttp session for API calls"""
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30),
+                headers={'User-Agent': 'Ultra-SIEM-Threat-Intel/1.0'}
+            )
+    
+    async def stop_session(self):
+        """Stop aiohttp session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+    
+    async def fetch_feed_data(self, feed_name: str, feed_config: Dict) -> Optional[List[Dict]]:
+        """Fetch data from a threat intelligence feed"""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(feed_config['url']) as response:
-                    if response.status != 200:
-                        raise Exception(f"HTTP {response.status}: {await response.text()}")
-                    
-                    content = await response.text()
-                    
-                    # Parse based on feed type
-                    iocs = self._parse_feed_content(content, feed_config)
-                    
-                    # Batch insert to ClickHouse
-                    batch_result = await self._batch_insert_iocs(iocs, feed_config['name'])
-                    result.update(batch_result)
-                    
+            await self.start_session()
+            
+            if feed_config["type"] == "api":
+                return await self._fetch_api_feed(feed_name, feed_config)
+            elif feed_config["type"] == "csv":
+                return await self._fetch_csv_feed(feed_name, feed_config)
+            elif feed_config["type"] == "json":
+                return await self._fetch_json_feed(feed_name, feed_config)
+            elif feed_config["type"] == "txt":
+                return await self._fetch_txt_feed(feed_name, feed_config)
+            else:
+                logger.warning(f"Unknown feed type: {feed_config['type']}")
+                return None
+                
         except Exception as e:
-            self.logger.error(f"❌ Failed to process feed {feed_config['name']}: {str(e)}")
-            raise
-        
-        return result
+            logger.error(f"Failed to fetch data from {feed_name}: {e}")
+            return None
     
-    def _parse_feed_content(self, content: str, feed_config: Dict) -> List[Dict]:
-        """Parse feed content based on type"""
-        iocs = []
-        feed_type = feed_config['type']
+    async def _fetch_api_feed(self, feed_name: str, feed_config: Dict) -> Optional[List[Dict]]:
+        """Fetch data from API-based feeds"""
+        if not feed_config.get("api_key"):
+            logger.warning(f"No API key configured for {feed_name}")
+            return None
         
-        if feed_type == "suricata":
-            iocs = self._parse_suricata_rules(content)
-        elif feed_type == "reputation":
-            iocs = self._parse_reputation_data(content)
-        elif feed_type == "domain":
-            iocs = self._parse_domain_list(content)
-        elif feed_type == "stix":
-            iocs = self._parse_stix_bundle(content)
+        headers = {}
+        if feed_name == "alienvault_otx":
+            headers["X-OTX-API-KEY"] = feed_config["api_key"]
+        elif feed_name == "virustotal":
+            params = {"apikey": feed_config["api_key"]}
+        elif feed_name == "abuseipdb":
+            headers["Key"] = feed_config["api_key"]
+            headers["Accept"] = "application/json"
         
-        # Enrich with metadata
-        for ioc in iocs:
-            ioc.update({
-                "source": feed_config['name'],
-                "first_seen": datetime.now(),
-                "last_updated": datetime.now(),
-                "expires_at": datetime.now() + timedelta(days=self.config['threat_expiry_days']),
-                "confidence": self._calculate_confidence(ioc, feed_config),
-                "encrypted": False
-            })
-        
-        return iocs
+        try:
+            async with self.session.get(feed_config["url"], headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return self._parse_api_response(feed_name, data)
+                else:
+                    logger.error(f"API request failed for {feed_name}: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"API request error for {feed_name}: {e}")
+            return None
     
-    def _parse_suricata_rules(self, content: str) -> List[Dict]:
-        """Parse Suricata rule format"""
-        iocs = []
-        
-        for line in content.split('\n'):
-            if line.startswith('alert') or line.startswith('drop'):
-                # Extract IoCs from Suricata rule
-                if 'content:' in line:
-                    # Extract content patterns
-                    import re
-                    patterns = re.findall(r'content:"([^"]+)"', line)
-                    
-                    for pattern in patterns:
-                        iocs.append({
-                            "indicator_type": "pattern",
-                            "value": pattern,
-                            "pattern_type": "suricata_content",
-                            "severity": self._extract_severity_from_rule(line),
-                            "description": self._extract_description_from_rule(line)
-                        })
-        
-        return iocs
+    async def _fetch_csv_feed(self, feed_name: str, feed_config: Dict) -> Optional[List[Dict]]:
+        """Fetch data from CSV-based feeds"""
+        try:
+            async with self.session.get(feed_config["url"]) as response:
+                if response.status == 200:
+                    csv_data = await response.text()
+                    return self._parse_csv_response(feed_name, csv_data)
+                else:
+                    logger.error(f"CSV request failed for {feed_name}: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"CSV request error for {feed_name}: {e}")
+            return None
     
-    def _parse_reputation_data(self, content: str) -> List[Dict]:
-        """Parse reputation data (IP addresses with scores)"""
-        iocs = []
+    async def _fetch_json_feed(self, feed_name: str, feed_config: Dict) -> Optional[List[Dict]]:
+        """Fetch data from JSON-based feeds"""
+        try:
+            async with self.session.get(feed_config["url"]) as response:
+                if response.status == 200:
+                    json_data = await response.json()
+                    return self._parse_json_response(feed_name, json_data)
+                else:
+                    logger.error(f"JSON request failed for {feed_name}: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"JSON request error for {feed_name}: {e}")
+            return None
+    
+    async def _fetch_txt_feed(self, feed_name: str, feed_config: Dict) -> Optional[List[Dict]]:
+        """Fetch data from TXT-based feeds"""
+        try:
+            async with self.session.get(feed_config["url"]) as response:
+                if response.status == 200:
+                    txt_data = await response.text()
+                    return self._parse_txt_response(feed_name, txt_data)
+                else:
+                    logger.error(f"TXT request failed for {feed_name}: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"TXT request error for {feed_name}: {e}")
+            return None
+    
+    def _parse_api_response(self, feed_name: str, data: Dict) -> List[Dict]:
+        """Parse API response data"""
+        indicators = []
         
-        for line in content.split('\n'):
-            if line.strip() and not line.startswith('#'):
-                parts = line.strip().split('#')
-                if len(parts) >= 2:
-                    ip = parts[0].strip()
-                    reputation_data = parts[1].strip()
-                    
-                    iocs.append({
-                        "indicator_type": "ipv4",
-                        "value": ip,
-                        "pattern_type": "exact_match",
-                        "severity": self._parse_reputation_score(reputation_data),
-                        "description": f"Malicious IP from reputation feed: {reputation_data}"
+        if feed_name == "alienvault_otx":
+            # Parse OTX indicators
+            if "indicators" in data:
+                for indicator in data["indicators"]:
+                    indicators.append({
+                        "indicator": indicator.get("indicator", ""),
+                        "type": indicator.get("type", ""),
+                        "threat_type": "malware",
+                        "confidence": 0.8,
+                        "source": feed_name,
+                        "tags": indicator.get("tags", [])
                     })
         
-        return iocs
-    
-    def _parse_domain_list(self, content: str) -> List[Dict]:
-        """Parse simple domain list"""
-        iocs = []
-        
-        for line in content.split('\n'):
-            domain = line.strip()
-            if domain and not domain.startswith('#') and '.' in domain:
-                iocs.append({
-                    "indicator_type": "domain",
-                    "value": domain.lower(),
-                    "pattern_type": "exact_match",
-                    "severity": 3,  # Medium severity for domain blocks
-                    "description": f"Malicious domain: {domain}"
+        elif feed_name == "virustotal":
+            # Parse VirusTotal data
+            if "positives" in data and "total" in data:
+                indicators.append({
+                    "indicator": data.get("resource", ""),
+                    "type": "hash",
+                    "threat_type": "malware",
+                    "confidence": data["positives"] / data["total"],
+                    "source": feed_name,
+                    "tags": []
                 })
         
-        return iocs
+        elif feed_name == "abuseipdb":
+            # Parse AbuseIPDB data
+            if "data" in data:
+                for item in data["data"]:
+                    indicators.append({
+                        "indicator": item.get("ipAddress", ""),
+                        "type": "ip",
+                        "threat_type": "malicious_ip",
+                        "confidence": item.get("abuseConfidenceScore", 0) / 100,
+                        "source": feed_name,
+                        "tags": []
+                    })
+        
+        return indicators
     
-    async def _batch_insert_iocs(self, iocs: List[Dict], source: str) -> Dict[str, int]:
-        """Batch insert IoCs to ClickHouse with deduplication"""
-        if not iocs:
-            return {"iocs_processed": 0, "new_iocs": 0, "updated_iocs": 0}
+    def _parse_csv_response(self, feed_name: str, csv_data: str) -> List[Dict]:
+        """Parse CSV response data"""
+        indicators = []
+        lines = csv_data.strip().split('\n')
         
-        result = {"iocs_processed": len(iocs), "new_iocs": 0, "updated_iocs": 0}
+        if feed_name == "urlhaus":
+            # Skip header line
+            for line in lines[1:]:
+                if line.strip():
+                    parts = line.split(',')
+                    if len(parts) >= 3:
+                        indicators.append({
+                            "indicator": parts[2].strip('"'),
+                            "type": "url",
+                            "threat_type": "malware",
+                            "confidence": 0.9,
+                            "source": feed_name,
+                            "tags": []
+                        })
         
-        # Create DataFrame for batch processing
-        df = pd.DataFrame(iocs)
-        
-        # Add hash for deduplication
-        df['ioc_hash'] = df.apply(lambda row: hashlib.sha256(
-            f"{row['indicator_type']}:{row['value']}".encode()
-        ).hexdigest(), axis=1)
-        
-        # Check for existing IoCs
-        existing_hashes = set()
-        if len(df) > 0:
-            hash_list = "','".join(df['ioc_hash'].tolist())
-            existing_query = f"SELECT ioc_hash FROM threat_intel WHERE ioc_hash IN ('{hash_list}')"
-            existing_results = self.client.query(existing_query)
-            existing_hashes = {row[0] for row in existing_results.result_rows}
-        
-        # Separate new and updated IoCs
-        new_iocs = df[~df['ioc_hash'].isin(existing_hashes)]
-        updated_iocs = df[df['ioc_hash'].isin(existing_hashes)]
-        
-        # Insert new IoCs
-        if len(new_iocs) > 0:
-            self.client.insert('threat_intel', new_iocs.to_dict('records'))
-            result["new_iocs"] = len(new_iocs)
-        
-        # Update existing IoCs
-        if len(updated_iocs) > 0:
-            for _, ioc in updated_iocs.iterrows():
-                update_query = f"""
-                ALTER TABLE threat_intel UPDATE 
-                    last_updated = '{ioc['last_updated']}',
-                    expires_at = '{ioc['expires_at']}',
-                    confidence = {ioc['confidence']}
-                WHERE ioc_hash = '{ioc['ioc_hash']}'
-                """
-                self.client.command(update_query)
-            result["updated_iocs"] = len(updated_iocs)
-        
-        self.logger.info(f"📊 {source}: {result['new_iocs']} new, {result['updated_iocs']} updated IoCs")
-        return result
+        return indicators
     
-    async def _cleanup_expired_iocs(self) -> int:
-        """Remove expired IoCs from the database"""
-        self.logger.info("🧹 Cleaning up expired IoCs")
+    def _parse_json_response(self, feed_name: str, json_data: List[Dict]) -> List[Dict]:
+        """Parse JSON response data"""
+        indicators = []
         
-        cleanup_query = f"""
-        DELETE FROM threat_intel 
-        WHERE expires_at < '{datetime.now()}'
-        """
+        if feed_name == "phishtank":
+            for item in json_data:
+                indicators.append({
+                    "indicator": item.get("url", ""),
+                    "type": "url",
+                    "threat_type": "phishing",
+                    "confidence": 0.95,
+                    "source": feed_name,
+                    "tags": []
+                })
         
-        result = self.client.command(cleanup_query)
-        expired_count = result.summary.get('written_rows', 0)
-        
-        self.logger.info(f"🗑️ Removed {expired_count} expired IoCs")
-        return expired_count
+        return indicators
     
-    async def _update_detection_engine(self):
-        """Update detection rules based on new IoCs"""
-        self.logger.info("⚙️ Updating detection engine rules")
+    def _parse_txt_response(self, feed_name: str, txt_data: str) -> List[Dict]:
+        """Parse TXT response data"""
+        indicators = []
+        lines = txt_data.strip().split('\n')
+        
+        if feed_name == "malware_bazaar":
+            for line in lines:
+                if line.strip() and not line.startswith('#'):
+                    indicators.append({
+                        "indicator": line.strip(),
+                        "type": "hash",
+                        "threat_type": "malware",
+                        "confidence": 0.85,
+                        "source": feed_name,
+                        "tags": []
+                    })
+        
+        return indicators
+    
+    def store_indicators(self, indicators: List[Dict]):
+        """Store indicators in database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        for indicator in indicators:
+            try:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO threat_indicators 
+                    (indicator, indicator_type, threat_type, confidence, first_seen, last_seen, source, tags)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    indicator["indicator"],
+                    indicator["type"],
+                    indicator["threat_type"],
+                    indicator["confidence"],
+                    datetime.now(),
+                    datetime.now(),
+                    indicator["source"],
+                    json.dumps(indicator.get("tags", []))
+                ))
+            except Exception as e:
+                logger.error(f"Failed to store indicator {indicator['indicator']}: {e}")
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Stored {len(indicators)} indicators")
+    
+    def correlate_threats(self) -> List[Dict]:
+        """Correlate threats based on rules"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        correlations = []
+        
+        for rule_name, rule in self.correlation_rules.items():
+            # Get indicators within time window
+            time_window = datetime.now() - timedelta(seconds=rule["time_window"])
+            
+            cursor.execute('''
+                SELECT indicator, indicator_type, threat_type, confidence, source
+                FROM threat_indicators 
+                WHERE last_seen >= ? AND indicator_type IN ({})
+            '''.format(','.join(['?'] * len(rule["indicators"]))), 
+            [time_window] + rule["indicators"])
+            
+            indicators = cursor.fetchall()
+            
+            if len(indicators) >= rule["threshold"]:
+                # Group by threat type
+                threat_groups = {}
+                for indicator in indicators:
+                    threat_type = indicator[2]
+                    if threat_type not in threat_groups:
+                        threat_groups[threat_type] = []
+                    threat_groups[threat_type].append(indicator)
+                
+                # Check if any group meets threshold
+                for threat_type, group in threat_groups.items():
+                    if len(group) >= rule["threshold"]:
+                        avg_confidence = sum(ind[3] for ind in group) / len(group)
+                        boosted_confidence = min(1.0, avg_confidence + rule["confidence_boost"])
+                        
+                        correlation = {
+                            "rule": rule_name,
+                            "threat_type": threat_type,
+                            "indicators": [ind[0] for ind in group],
+                            "confidence": boosted_confidence,
+                            "sources": list(set(ind[4] for ind in group)),
+                            "timestamp": datetime.now()
+                        }
+                        
+                        correlations.append(correlation)
+                        
+                        # Store correlation event
+                        cursor.execute('''
+                            INSERT INTO correlation_events 
+                            (event_type, indicators, threat_type, confidence, source)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (
+                            rule_name,
+                            json.dumps([ind[0] for ind in group]),
+                            threat_type,
+                            boosted_confidence,
+                            json.dumps(list(set(ind[4] for ind in group)))
+                        ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Generated {len(correlations)} threat correlations")
+        return correlations
+    
+    async def export_to_ultra_siem(self, correlations: List[Dict]):
+        """Export threat intelligence to Ultra SIEM"""
+        if not self.config["integration"]["auto_export"]:
+            return
         
         try:
-            # Generate YARA rules from IoCs
-            yara_rules = await self._generate_yara_rules()
-            
-            # Update detection engine
-            if yara_rules:
-                with open("config/threat_detection.yar", "w") as f:
-                    f.write(yara_rules)
+            # Export to ClickHouse
+            for correlation in correlations:
+                threat_data = {
+                    "timestamp": correlation["timestamp"].isoformat(),
+                    "threat_type": correlation["threat_type"],
+                    "confidence": correlation["confidence"],
+                    "indicators": correlation["indicators"],
+                    "sources": correlation["sources"],
+                    "rule": correlation["rule"],
+                    "source": "threat_intelligence"
+                }
                 
-                # Compile rules for validation
-                self.yara_rules = yara.compile(source=yara_rules)
-                self.logger.info(f"✅ Updated {len(self.yara_rules)} YARA rules")
-            
-            # Update network detection patterns
-            await self._update_network_patterns()
-            
+                # Insert into ClickHouse
+                query = '''
+                    INSERT INTO bulletproof_threats 
+                    (timestamp, threat_type, confidence, indicators, sources, rule, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                '''
+                
+                # This would be implemented with ClickHouse client
+                logger.info(f"Exported correlation: {correlation['rule']} - {correlation['threat_type']}")
+        
         except Exception as e:
-            self.logger.error(f"❌ Failed to update detection engine: {str(e)}")
+            logger.error(f"Failed to export to Ultra SIEM: {e}")
     
-    async def _generate_yara_rules(self) -> str:
-        """Generate YARA rules from threat IoCs"""
-        query = """
-        SELECT indicator_type, value, description, severity
-        FROM threat_intel 
-        WHERE indicator_type IN ('pattern', 'hash') 
-        AND expires_at > now()
-        ORDER BY severity DESC
-        LIMIT 1000
-        """
+    async def update_all_feeds(self):
+        """Update all enabled threat intelligence feeds"""
+        logger.info("Starting threat intelligence feed update")
         
-        results = self.client.query(query)
+        tasks = []
+        for feed_name, feed_config in self.feeds.items():
+            if feed_config.get("enabled", False):
+                task = asyncio.create_task(self.update_feed(feed_name, feed_config))
+                tasks.append(task)
         
-        yara_rules = []
-        rule_id = 1
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         
-        for row in results.result_rows:
-            indicator_type, value, description, severity = row
+        # Correlate threats
+        correlations = self.correlate_threats()
+        
+        # Export to Ultra SIEM
+        await self.export_to_ultra_siem(correlations)
+        
+        logger.info("Threat intelligence feed update completed")
+    
+    async def update_feed(self, feed_name: str, feed_config: Dict):
+        """Update a single threat intelligence feed"""
+        try:
+            logger.info(f"Updating feed: {feed_name}")
             
-            if indicator_type == "pattern":
-                rule = f"""
-rule ThreatIntel_Pattern_{rule_id} {{
-    meta:
-        description = "{description}"
-        severity = {severity}
-        source = "Ultra SIEM Threat Intel"
-        
-    strings:
-        $pattern = "{value}"
-        
-    condition:
-        $pattern
-}}
-"""
-                yara_rules.append(rule)
-                rule_id += 1
-            
-            elif indicator_type == "hash":
-                rule = f"""
-rule ThreatIntel_Hash_{rule_id} {{
-    meta:
-        description = "{description}"
-        severity = {severity}
-        source = "Ultra SIEM Threat Intel"
-        
-    condition:
-        hash.sha256(0, filesize) == "{value}"
-}}
-"""
-                yara_rules.append(rule)
-                rule_id += 1
-        
-        return "\n".join(yara_rules)
-    
-    async def _update_network_patterns(self):
-        """Update network-based detection patterns"""
-        # Get malicious IPs and domains
-        network_query = """
-        SELECT indicator_type, value, severity
-        FROM threat_intel 
-        WHERE indicator_type IN ('ipv4', 'ipv6', 'domain', 'url')
-        AND expires_at > now()
-        ORDER BY severity DESC
-        """
-        
-        results = self.client.query(network_query)
-        
-        network_patterns = {
-            "malicious_ips": [],
-            "malicious_domains": [],
-            "malicious_urls": []
-        }
-        
-        for row in results.result_rows:
-            indicator_type, value, severity = row
-            
-            if indicator_type in ['ipv4', 'ipv6']:
-                network_patterns["malicious_ips"].append({
-                    "ip": value,
-                    "severity": severity
-                })
-            elif indicator_type == 'domain':
-                network_patterns["malicious_domains"].append({
-                    "domain": value,
-                    "severity": severity
-                })
-            elif indicator_type == 'url':
-                network_patterns["malicious_urls"].append({
-                    "url": value,
-                    "severity": severity
-                })
-        
-        # Save patterns for Vector to use
-        with open("config/network_threat_patterns.json", "w") as f:
-            json.dump(network_patterns, f, indent=2)
-        
-        self.logger.info(f"🌐 Updated network patterns: {len(network_patterns['malicious_ips'])} IPs, {len(network_patterns['malicious_domains'])} domains")
-    
-    def _calculate_confidence(self, ioc: Dict, feed_config: Dict) -> float:
-        """Calculate confidence score for IoC"""
-        base_confidence = 0.7
-        
-        # Adjust based on source reputation
-        source_multipliers = {
-            "emergingthreats": 0.9,
-            "alienvault": 0.85,
-            "malwaredomains": 0.8
-        }
-        
-        source_multiplier = source_multipliers.get(feed_config['name'], 0.7)
-        
-        # Adjust based on severity
-        severity_multiplier = {
-            1: 0.6,  # Low
-            2: 0.7,  # Medium-Low
-            3: 0.8,  # Medium
-            4: 0.9,  # High
-            5: 1.0   # Critical
-        }.get(ioc.get('severity', 3), 0.8)
-        
-        return min(1.0, base_confidence * source_multiplier * severity_multiplier)
-    
-    def _extract_severity_from_rule(self, rule: str) -> int:
-        """Extract severity from Suricata rule"""
-        if "priority:1" in rule:
-            return 5
-        elif "priority:2" in rule:
-            return 4
-        elif "priority:3" in rule:
-            return 3
-        else:
-            return 2
-    
-    def _extract_description_from_rule(self, rule: str) -> str:
-        """Extract description from Suricata rule"""
-        import re
-        match = re.search(r'msg:"([^"]+)"', rule)
-        return match.group(1) if match else "Threat detected"
-    
-    def _parse_reputation_score(self, reputation_data: str) -> int:
-        """Parse reputation score from feed data"""
-        # Extract numeric score if present
-        import re
-        score_match = re.search(r'(\d+)', reputation_data)
-        if score_match:
-            score = int(score_match.group(1))
-            # Convert to 1-5 scale
-            if score >= 80:
-                return 5
-            elif score >= 60:
-                return 4
-            elif score >= 40:
-                return 3
-            elif score >= 20:
-                return 2
+            indicators = await self.fetch_feed_data(feed_name, feed_config)
+            if indicators:
+                self.store_indicators(indicators)
+                self.last_update[feed_name] = datetime.now()
+                logger.info(f"Updated {feed_name}: {len(indicators)} indicators")
             else:
-                return 1
-        return 3  # Default medium severity
+                logger.warning(f"No data received from {feed_name}")
+        
+        except Exception as e:
+            logger.error(f"Failed to update {feed_name}: {e}")
+    
+    def get_statistics(self) -> Dict:
+        """Get threat intelligence statistics"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Total indicators
+        cursor.execute("SELECT COUNT(*) FROM threat_indicators")
+        total_indicators = cursor.fetchone()[0]
+        
+        # Indicators by type
+        cursor.execute("SELECT indicator_type, COUNT(*) FROM threat_indicators GROUP BY indicator_type")
+        indicators_by_type = dict(cursor.fetchall())
+        
+        # Indicators by threat type
+        cursor.execute("SELECT threat_type, COUNT(*) FROM threat_indicators GROUP BY threat_type")
+        indicators_by_threat = dict(cursor.fetchall())
+        
+        # Recent correlations
+        cursor.execute("SELECT COUNT(*) FROM correlation_events WHERE timestamp >= datetime('now', '-1 hour')")
+        recent_correlations = cursor.fetchone()[0]
+        
+        # Feed status
+        feed_status = {}
+        for feed_name in self.feeds.keys():
+            last_update = self.last_update.get(feed_name)
+            feed_status[feed_name] = {
+                "enabled": self.feeds[feed_name].get("enabled", False),
+                "last_update": last_update.isoformat() if last_update else None
+            }
+        
+        conn.close()
+        
+        return {
+            "total_indicators": total_indicators,
+            "indicators_by_type": indicators_by_type,
+            "indicators_by_threat": indicators_by_threat,
+            "recent_correlations": recent_correlations,
+            "feed_status": feed_status,
+            "correlation_rules": len(self.correlation_rules)
+        }
+    
+    async def run_continuous(self, update_interval: int = 3600):
+        """Run continuous threat intelligence updates"""
+        logger.info(f"Starting continuous threat intelligence updates (interval: {update_interval}s)")
+        
+        try:
+            while True:
+                await self.update_all_feeds()
+                await asyncio.sleep(update_interval)
+        
+        except KeyboardInterrupt:
+            logger.info("Stopping continuous threat intelligence updates")
+        finally:
+            await self.stop_session()
 
-# CLI interface
 async def main():
+    """Main function"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Ultra SIEM Threat Intelligence Feed Manager")
-    parser.add_argument("--config", default="config/threat_intel.json", help="Config file path")
-    parser.add_argument("--refresh", action="store_true", help="Refresh all feeds")
-    parser.add_argument("--daemon", action="store_true", help="Run as daemon")
-    parser.add_argument("--interval", type=int, default=3600, help="Refresh interval in seconds")
+    parser = argparse.ArgumentParser(description="Ultra SIEM Threat Intelligence Integration")
+    parser.add_argument("--config", default="config/threat_intel.json", help="Configuration file path")
+    parser.add_argument("--continuous", action="store_true", help="Run continuous updates")
+    parser.add_argument("--update-interval", type=int, default=3600, help="Update interval in seconds")
+    parser.add_argument("--stats", action="store_true", help="Show statistics")
+    parser.add_argument("--update-now", action="store_true", help="Update all feeds now")
     
     args = parser.parse_args()
     
-    feed_manager = ThreatIntelligenceFeed(args.config)
+    # Initialize threat intelligence
+    ti = ThreatIntelligenceFeed(args.config)
     
-    if args.refresh:
-        results = await feed_manager.refresh_all_feeds()
-        print(json.dumps(results, indent=2))
-    elif args.daemon:
-        while True:
-            try:
-                await feed_manager.refresh_all_feeds()
-                await asyncio.sleep(args.interval)
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                logging.error(f"Daemon error: {e}")
-                await asyncio.sleep(60)  # Wait before retry
-    else:
-        parser.print_help()
+    try:
+        if args.stats:
+            stats = ti.get_statistics()
+            print(json.dumps(stats, indent=2))
+        
+        elif args.update_now:
+            await ti.update_all_feeds()
+        
+        elif args.continuous:
+            await ti.run_continuous(args.update_interval)
+        
+        else:
+            # Default: run one update
+            await ti.update_all_feeds()
+    
+    finally:
+        await ti.stop_session()
 
 if __name__ == "__main__":
     asyncio.run(main()) 

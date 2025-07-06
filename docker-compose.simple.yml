@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   nats:
     image: nats:alpine
@@ -7,6 +9,20 @@ services:
       - "8222:8222"
     volumes:
       - nats_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/varz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -15,10 +31,25 @@ services:
       - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml:ro
     environment:
       - CLICKHOUSE_DB=siem
       - CLICKHOUSE_USER=admin
-      - CLICKHOUSE_PASSWORD=admin123
+      - CLICKHOUSE_PASSWORD=admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
 
   grafana:
     image: grafana/grafana-oss:latest
@@ -26,10 +57,38 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/provisioning/notifiers:/etc/grafana/provisioning/notifiers:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-changeme}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
 
 volumes:
   nats_data:
+    driver: local
   grafana_data:
+    driver: local
   clickhouse_data:
+    driver: local
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

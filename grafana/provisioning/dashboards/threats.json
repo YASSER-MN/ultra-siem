@@ -1,98 +1,96 @@
 {
-  "dashboard": {
-    "id": null,
-    "title": "🚀 Ultra SIEM - Real-Time Threat Dashboard",
-    "tags": ["siem", "security", "threats"],
-    "style": "dark",
-    "timezone": "UTC",
-    "refresh": "5s",
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    },
-    "panels": [
-      {
-        "id": 1,
-        "title": "🔥 Threats per Second",
-        "type": "stat",
-        "targets": [
-          {
-            "datasource": "ClickHouse-SIEM",
-            "rawSql": "SELECT count() FROM threats WHERE timestamp >= now() - INTERVAL 1 MINUTE"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": { "mode": "palette-classic" },
-            "custom": { "displayMode": "lcd" },
-            "unit": "short"
-          }
-        },
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
-      },
-      {
-        "id": 2,
-        "title": "🎯 Threat Types Distribution",
-        "type": "piechart",
-        "targets": [
-          {
-            "datasource": "ClickHouse-SIEM",
-            "rawSql": "SELECT threat_type, count() as count FROM threats WHERE timestamp >= now() - INTERVAL 1 HOUR GROUP BY threat_type ORDER BY count DESC"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
-      },
-      {
-        "id": 3,
-        "title": "📊 Threats Timeline",
-        "type": "timeseries",
-        "targets": [
-          {
-            "datasource": "ClickHouse-SIEM",
-            "rawSql": "SELECT toStartOfMinute(timestamp) as time, threat_type, count() as count FROM threats WHERE timestamp >= now() - INTERVAL 6 HOUR GROUP BY time, threat_type ORDER BY time"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": { "mode": "palette-classic" },
-            "unit": "short"
-          }
-        },
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
-      },
-      {
-        "id": 4,
-        "title": "🌍 Top Source IPs",
-        "type": "table",
-        "targets": [
-          {
-            "datasource": "ClickHouse-SIEM",
-            "rawSql": "SELECT source_ip, count() as threats, avg(confidence) as avg_confidence FROM threats WHERE timestamp >= now() - INTERVAL 1 HOUR GROUP BY source_ip ORDER BY threats DESC LIMIT 10"
-          }
-        ],
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
-      },
-      {
-        "id": 5,
-        "title": "⚡ Performance Metrics",
-        "type": "stat",
-        "targets": [
-          {
-            "datasource": "ClickHouse-SIEM",
-            "rawSql": "SELECT count() / 3600 as eps FROM threats WHERE timestamp >= now() - INTERVAL 1 HOUR"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": { "mode": "thresholds" },
-            "unit": "ops",
-            "displayName": "Events/sec"
-          }
-        },
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
-      }
-    ]
+  "id": null,
+  "title": "🚀 Ultra SIEM - Real-Time Threat Dashboard",
+  "tags": ["siem", "security", "threats"],
+  "style": "dark",
+  "timezone": "UTC",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
   },
+  "panels": [
+    {
+      "id": 1,
+      "title": "🔥 Threats per Second",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "SELECT count() FROM siem.threats WHERE event_time >= now() - INTERVAL 1 MINUTE",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "displayMode": "lcd" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "🎯 Threat Types Distribution",
+      "type": "piechart",
+      "targets": [
+        {
+          "expr": "SELECT threat_type, count() as count FROM siem.threats WHERE event_time >= now() - INTERVAL 1 HOUR GROUP BY threat_type ORDER BY count DESC",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "id": 3,
+      "title": "📊 Threats Timeline",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "SELECT toStartOfMinute(event_time) as time, threat_type, count() as count FROM siem.threats WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY time, threat_type ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "title": "🌍 Top Source IPs",
+      "type": "table",
+      "targets": [
+        {
+          "expr": "SELECT source_ip, count() as threats, avg(confidence_score) as avg_confidence FROM siem.threats WHERE event_time >= now() - INTERVAL 1 HOUR GROUP BY source_ip ORDER BY threats DESC LIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 5,
+      "title": "⚡ Performance Metrics",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "SELECT count() / 3600 as eps FROM siem.threats WHERE event_time >= now() - INTERVAL 1 HOUR",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "ops",
+          "displayName": "Events/sec"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+    }
+  ],
   "folderId": null,
   "overwrite": true
 }

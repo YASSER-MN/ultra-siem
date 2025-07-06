@@ -1,4 +1,4 @@
-FROM rust:1.75-slim as builder
+FROM rust:latest as builder
 
 ARG TARGET_PLATFORM=linux
 
@@ -15,20 +15,6 @@ RUN apt-get update && apt-get install -y \
 
 # Copy dependency files
 COPY Cargo.toml Cargo.lock ./
-
-# Create platform-specific Cargo.toml
-RUN if [ "$TARGET_PLATFORM" = "windows" ]; then \
-        echo '[dependencies.windows] = { version = "0.52", features = ["Win32_System_Diagnostics_Etw", "Win32_Foundation"] }' >> Cargo.toml; \
-    elif [ "$TARGET_PLATFORM" = "linux" ]; then \
-        echo '[dependencies.systemd] = "0.10"' >> Cargo.toml; \
-    elif [ "$TARGET_PLATFORM" = "macos" ]; then \
-        echo '[dependencies.core-foundation] = "0.9"' >> Cargo.toml; \
-    fi
-
-# Pre-build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
 
 # Copy source based on platform
 COPY src/ ./src/

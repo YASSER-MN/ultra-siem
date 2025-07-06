@@ -6,21 +6,42 @@ edition = "2021"
 
 
 [dependencies]
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.45", features = ["full", "rt-multi-thread"] }
 async-nats = "0.33"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+maxminddb = "0.24"
+reqwest = { version = "0.11", features = ["json"] }
 windows = { version = "0.52", features = [
     "Win32_System_Diagnostics_Etw",
     "Win32_Foundation",
     "Win32_System_Threading",
 ] }
+# Zero-latency optimizations
+crossbeam = "0.8"
+dashmap = "5.5"
+parking_lot = "0.12"
+rayon = "1.8"
+memmap2 = "0.9"
+# High-performance networking
+quinn = "0.10"
+# Lock-free structures
+crossbeam-channel = "0.5"
+crossbeam-queue = "0.3"
+# Performance profiling
+# Memory optimization - using standard allocator for Windows compatibility
+futures = "0.3"
+rand = "0.8"
 
 [profile.release]
 lto = true
 codegen-units = 1
 panic = "abort"
 opt-level = 3
+# Zero-latency optimizations
+# Memory optimization
+overflow-checks = false
 
 [profile.dev]
 opt-level = 1 

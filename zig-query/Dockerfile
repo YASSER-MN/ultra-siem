@@ -9,10 +9,10 @@ RUN apk add --no-cache \
     musl-dev \
     libc-dev
 
-# Install Zig
-RUN wget -O zig.tar.xz https://ziglang.org/download/0.11.0/zig-linux-x86_64-0.11.0.tar.xz && \
+# Install latest Zig
+RUN wget -O zig.tar.xz https://ziglang.org/download/0.12.0/zig-linux-x86_64-0.12.0.tar.xz && \
     tar -xf zig.tar.xz && \
-    mv zig-linux-x86_64-0.11.0 /opt/zig && \
+    mv zig-linux-x86_64-0.12.0 /opt/zig && \
     rm zig.tar.xz
 
 WORKDIR /app

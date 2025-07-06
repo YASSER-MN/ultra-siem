@@ -11,20 +11,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     
-    // Enable SIMD optimizations (Docker-compatible)
-    exe.addCSourceFile(.{ 
-        .file = .{ .path = "src/simd.c" }, 
-        .flags = &[_][]const u8{
-            "-march=x86-64-v2", 
-            "-mtune=generic", 
-            "-O3",
-            "-msse4.2",
-            "-mavx2"
-        } 
-    });
-    
     exe.linkLibC();
-    exe.strip = optimize == .ReleaseFast;
     
     b.installArtifact(exe);
     

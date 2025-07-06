@@ -1,0 +1,16 @@
+notifiers:
+  - name: Admin Email
+    type: email
+    uid: admin-email
+    is_default: true
+    settings:
+      addresses: "yassermn238@gmail.com"
+      singleEmail: true
+      skipVerify: false
+      from_address: "yassermn238@gmail.com"
+      smtphost: "smtp.gmail.com:587"
+      smtpuser: "yassermn238@gmail.com"
+      smtppassword: "${GMAIL_APP_PASSWORD}"
+      startTLSPolicy: "OpportunisticStartTLS"
+      subject: "[Ultra SIEM Alert] ${alert_title}"
+      message: "🚨 Ultra SIEM Security Alert\n\nAlert: ${alert_title}\n\nDetails: ${alert_message}\n\nTime: ${alert_time}\nSeverity: ${alert_severity}\n\nThis is an automated alert from your Ultra SIEM system."

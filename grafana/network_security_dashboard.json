@@ -1,0 +1,123 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🌐 Network Security Analysis",
+    "tags": ["network", "geo", "ip-analysis"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "2m",
+    "time": { "from": "now-12h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🗺️ Global Attack Heat Map",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT geo_country as 'Country', count() as 'Total Attacks', countIf(severity = 'CRITICAL') as 'Critical', countIf(severity = 'HIGH') as 'High', round(avg(confidence_score), 2) as 'Avg Confidence' FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR AND geo_country != 'Unknown' GROUP BY geo_country ORDER BY count() DESC LIMIT 15",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+      },
+      {
+        "id": 2,
+        "title": "🎯 Most Dangerous IPs",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT source_ip as 'IP Address', geo_country as 'Country', count() as 'Attacks', group_concat(DISTINCT threat_type) as 'Attack Types', max(confidence_score) as 'Max Confidence' FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR GROUP BY source_ip, geo_country HAVING count() >= 2 ORDER BY count() DESC LIMIT 10",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "📊 Attack Types by Country",
+        "type": "heatmap",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT geo_country, threat_type, count() as attacks FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR AND geo_country != 'Unknown' GROUP BY geo_country, threat_type ORDER BY attacks DESC",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
+      },
+      {
+        "id": 4,
+        "title": "⏱️ Attack Timeline by Severity",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfHour(event_time) as time, countIf(severity = 'CRITICAL') as 'Critical', countIf(severity = 'HIGH') as 'High', countIf(severity = 'MEDIUM') as 'Medium', countIf(severity = 'LOW') as 'Low' FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 16, "x": 0, "y": 16 }
+      },
+      {
+        "id": 5,
+        "title": "🔍 IP Reputation Score",
+        "type": "gauge",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(100 - (uniq(source_ip) * 10), 1) as reputation_score FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 60 },
+                { "color": "green", "value": 80 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "🌍 Country Risk Assessment",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT geo_country as 'Country', count() as 'Total Threats', uniq(source_ip) as 'Unique IPs', round(count() / uniq(source_ip), 2) as 'Attacks per IP', CASE WHEN count() > 10 THEN 'HIGH' WHEN count() > 5 THEN 'MEDIUM' ELSE 'LOW' END as 'Risk Level' FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR AND geo_country != 'Unknown' GROUP BY geo_country ORDER BY count() DESC LIMIT 10",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 }
+      }
+    ]
+  }
+}

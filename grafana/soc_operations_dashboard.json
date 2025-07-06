@@ -1,0 +1,138 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🔍 SOC Operations Center",
+    "tags": ["soc", "operations", "real-time"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🚨 Live Threat Feed",
+        "type": "logs",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT event_time, source_ip, threat_type, severity, message FROM siem.threats WHERE event_time >= now() - INTERVAL 30 MINUTE ORDER BY event_time DESC LIMIT 50",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 }
+      },
+      {
+        "id": 2,
+        "title": "⚡ Events per Second",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() / 60 as eps FROM siem.threats WHERE event_time >= now() - INTERVAL 1 MINUTE",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 10 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "decimals": 2,
+            "custom": { "displayMode": "lcd" }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "🎯 High Priority Queue",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as high_priority FROM siem.threats WHERE severity IN ('HIGH', 'CRITICAL') AND event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 10 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "orange" }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "📊 Severity Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT severity, count() as count FROM siem.threats WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY severity ORDER BY count DESC",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 }
+      },
+      {
+        "id": 5,
+        "title": "🌐 Top Source IPs",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT source_ip as 'Source IP', count() as 'Attacks', countIf(severity = 'CRITICAL') as 'Critical', max(event_time) as 'Last Seen' FROM siem.threats WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY source_ip ORDER BY count() DESC LIMIT 10",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 }
+      },
+      {
+        "id": 6,
+        "title": "📈 Attack Patterns (Hourly)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfMinute(event_time) as time, count() as total_threats FROM siem.threats WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 }
+      },
+      {
+        "id": 7,
+        "title": "🔥 Critical Incidents",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT event_time as 'Time', source_ip as 'Source', threat_type as 'Type', message as 'Description', confidence_score as 'Confidence' FROM siem.threats WHERE severity = 'CRITICAL' AND event_time >= now() - INTERVAL 6 HOUR ORDER BY event_time DESC LIMIT 20",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 }
+      }
+    ]
+  }
+}

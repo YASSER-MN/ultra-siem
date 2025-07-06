@@ -12,7 +12,7 @@
 | **☁️ Cloud**   | ✅ Full Support | Platform-specific APIs    | Kubernetes/Docker     | Auto-scaling      |
 
 ---
-
+x
 ## **🚀 Quick Start by Platform**
 
 ### **🐧 Linux (Ubuntu/Debian/CentOS/RHEL)**

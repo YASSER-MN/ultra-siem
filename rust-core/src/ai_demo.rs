@@ -1,6 +1,5 @@
 use crate::ml_engine::{MLEngine, EventMetadata};
 use std::collections::HashMap;
-use chrono::Utc;
 
 pub struct AIDemo {
     ml_engine: MLEngine,
@@ -38,7 +37,7 @@ impl AIDemo {
         for (model_name, (accuracy, last_trained)) in stats {
             println!("🧠 Model: {}", model_name);
             println!("   Accuracy: {:.1}%", accuracy * 100.0);
-            println!("   Last Trained: {}", last_trained.format("%Y-%m-%d %H:%M UTC"));
+            println!("   Last Trained: {} (timestamp)", last_trained);
             println!();
         }
     }
@@ -83,7 +82,7 @@ impl AIDemo {
             let metadata = EventMetadata {
                 source_ip: source_ip.to_string(),
                 user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64)".to_string()),
-                timestamp: Utc::now(),
+                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                 request_method: Some("POST".to_string()),
                 url_path: Some("/api/search".to_string()),
                 headers: HashMap::new(),

@@ -1,7 +1,7 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:latest AS builder
 
 # Install git for module resolution and security updates
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apt-get update && apt-get install -y git ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

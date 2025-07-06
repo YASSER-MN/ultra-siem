@@ -2,11 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"sync"
@@ -15,10 +12,9 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/nats-io/nats.go"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+// ThreatEvent represents the original threat event format
 type ThreatEvent struct {
 	EventTime   time.Time `json:"timestamp"`
 	SourceIP    string    `json:"source_ip"`
@@ -32,103 +28,57 @@ type ThreatEvent struct {
 	Confidence  float32   `json:"confidence"`
 }
 
+// RealThreatEvent represents the new real detection event format
+type RealThreatEvent struct {
+	Timestamp   int64             `json:"timestamp"`
+	SourceIP    string            `json:"source_ip"`
+	ThreatType  string            `json:"threat_type"`
+	Payload     string            `json:"payload"`
+	Severity    int               `json:"severity"`
+	Confidence  float64           `json:"confidence"`
+	Source      string            `json:"source"`
+	Details     map[string]string `json:"details"`
+}
+
+// UnifiedThreatEvent represents the blended event format for storage
+type UnifiedThreatEvent struct {
+	Timestamp   time.Time
+	SourceIP    string
+	ThreatType  string
+	Severity    string
+	Message     string
+	RawLog      string
+	Country     string
+	ASN         uint32
+	IsTor       uint8
+	Confidence  float32
+	Source      string
+	Details     string
+}
+
+// SIEMBridge handles both old and new threat processing
 type SIEMBridge struct {
-	nats       *nats.Conn
-	js         nats.JetStreamContext
-	clickhouse driver.Conn
-	metrics    *Metrics
-	batchMutex sync.Mutex
-	eventBatch []ThreatEvent
-}
-
-type Metrics struct {
-	eventsProcessed prometheus.Counter
-	eventsDropped   prometheus.Counter
-	latency         prometheus.Histogram
-	batchSize       prometheus.Histogram
-}
-
-func setupMetrics() *Metrics {
-	return &Metrics{
-		eventsProcessed: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "siem_events_processed_total",
-			Help: "Total number of events processed",
-		}),
-		eventsDropped: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "siem_events_dropped_total",
-			Help: "Total number of events dropped",
-		}),
-		latency: promauto.NewHistogram(prometheus.HistogramOpts{
-			Name:    "siem_processing_latency_seconds",
-			Help:    "Processing latency distribution",
-			Buckets: prometheus.ExponentialBuckets(0.001, 2, 10),
-		}),
-		batchSize: promauto.NewHistogram(prometheus.HistogramOpts{
-			Name:    "siem_batch_size",
-			Help:    "Batch size distribution",
-			Buckets: prometheus.LinearBuckets(100, 100, 10),
-		}),
-	}
-}
-
-func loadTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
-	// Load client certificate
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load client certificate: %w", err)
-	}
-
-	// Load CA certificate
-	caCert, err := ioutil.ReadFile(caFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
-	}
-
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append CA certificate")
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caCertPool,
-		MinVersion:   tls.VersionTLS13,
-		CipherSuites: []uint16{
-			tls.TLS_AES_256_GCM_SHA384,
-			tls.TLS_CHACHA20_POLY1305_SHA256,
-		},
-		CurvePreferences: []tls.CurveID{
-			tls.X25519,
-			tls.CurveP384,
-		},
-	}, nil
+	nats           *nats.Conn
+	js             nats.JetStreamContext
+	clickhouse     driver.Conn
+	batchMutex     sync.Mutex
+	eventBatch     []UnifiedThreatEvent
+	reportedEvents sync.Map // For deduplication
 }
 
 func NewSIEMBridge() (*SIEMBridge, error) {
 	bridge := &SIEMBridge{
-		metrics:    setupMetrics(),
-		eventBatch: make([]ThreatEvent, 0, 1000),
+		eventBatch: make([]UnifiedThreatEvent, 0, 1000),
 	}
 
-	// Setup mTLS configuration
-	tlsConfig, err := loadTLSConfig(
-		os.Getenv("TLS_CERT_FILE"),
-		os.Getenv("TLS_KEY_FILE"),
-		os.Getenv("TLS_CA_FILE"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup TLS: %w", err)
-	}
-
-	// Connect to NATS with mTLS
+	// Connect to NATS (no TLS for demo)
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
-		natsURL = "tls://nats:4222"
+		natsURL = "nats://127.0.0.1:4222"
 	}
 
+	var err error
 	bridge.nats, err = nats.Connect(natsURL,
-		nats.Secure(tlsConfig),
-		nats.UserCredentials(os.Getenv("NATS_CREDS_FILE")),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(time.Second*2),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
@@ -148,20 +98,51 @@ func NewSIEMBridge() (*SIEMBridge, error) {
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	// Connect to ClickHouse with mTLS
+	// Create stream if it doesn't exist
+	stream, err := bridge.js.StreamInfo("THREATS")
+	if err != nil {
+		// Stream doesn't exist, create it
+		_, err = bridge.js.AddStream(&nats.StreamConfig{
+			Name:     "THREATS",
+			Subjects: []string{"threats.detected", "threats.real"},
+			Storage:  nats.FileStorage,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create stream: %w", err)
+		}
+		log.Printf("✅ Created NATS stream: THREATS")
+	} else {
+		log.Printf("✅ NATS stream exists: %s", stream.Config.Name)
+	}
+
+	// Connect to ClickHouse (no TLS for demo)
 	clickhouseURL := os.Getenv("CLICKHOUSE_URL")
 	if clickhouseURL == "" {
-		clickhouseURL = "clickhouse:9440"
+		clickhouseURL = "127.0.0.1:8123"
+	}
+
+	clickhouseDB := os.Getenv("CLICKHOUSE_DB")
+	if clickhouseDB == "" {
+		clickhouseDB = "siem"
+	}
+
+	clickhouseUser := os.Getenv("CLICKHOUSE_USER")
+	if clickhouseUser == "" {
+		clickhouseUser = "admin"
+	}
+
+	clickhousePassword := os.Getenv("CLICKHOUSE_PASSWORD")
+	if clickhousePassword == "" {
+		clickhousePassword = "admin"
 	}
 
 	bridge.clickhouse, err = clickhouse.Open(&clickhouse.Options{
 		Addr: []string{clickhouseURL},
 		Auth: clickhouse.Auth{
-			Database: os.Getenv("CLICKHOUSE_DB"),
-			Username: os.Getenv("CLICKHOUSE_USER"),
-			Password: os.Getenv("CLICKHOUSE_PASSWORD"),
+			Database: clickhouseDB,
+			Username: clickhouseUser,
+			Password: clickhousePassword,
 		},
-		TLS: tlsConfig,
 		Settings: clickhouse.Settings{
 			"max_execution_time":             300,
 			"max_memory_usage":               "8000000000",
@@ -186,86 +167,192 @@ func NewSIEMBridge() (*SIEMBridge, error) {
 }
 
 func (b *SIEMBridge) processEvents() error {
-	// Subscribe to threat events
-	sub, err := b.js.PullSubscribe("threats.detected", "clickhouse-bridge",
-		nats.Durable("clickhouse-bridge"),
+	// Subscribe to both old and new threat events
+	sub1, err := b.js.PullSubscribe("threats.detected", "clickhouse-bridge-legacy",
 		nats.AckExplicit(),
 		nats.MaxDeliver(3),
 		nats.AckWait(30*time.Second),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe: %w", err)
+		return fmt.Errorf("failed to subscribe to threats.detected: %w", err)
+	}
+
+	sub2, err := b.js.PullSubscribe("threats.real", "clickhouse-bridge-real",
+		nats.AckExplicit(),
+		nats.MaxDeliver(3),
+		nats.AckWait(30*time.Second),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to threats.real: %w", err)
 	}
 
 	// Start batch processor
 	go b.batchProcessor()
 
-	log.Println("✅ SIEM Bridge started - processing events...")
+	log.Printf("🚀 Ultra SIEM Go Data Processor Starting...")
+	log.Printf("✅ Connected to NATS")
+	log.Printf("📡 Listening for threat events (legacy + real)...")
+	log.Printf("🔄 Blended processing: Old + New threat detection")
 
+	// Process both subscription types
+	go b.processSubscription(sub1, "legacy")
+	go b.processSubscription(sub2, "real")
+
+	// Keep main thread alive
+	select {}
+}
+
+func (b *SIEMBridge) processSubscription(sub *nats.Subscription, source string) {
 	for {
-		// Fetch messages in batches
 		msgs, err := sub.Fetch(100, nats.MaxWait(5*time.Second))
 		if err != nil {
 			if err == nats.ErrTimeout {
 				continue
 			}
-			log.Printf("Error fetching messages: %v", err)
+			log.Printf("Error fetching messages from %s: %v", source, err)
 			continue
 		}
 
 		for _, msg := range msgs {
-			start := time.Now()
+			var unifiedEvent UnifiedThreatEvent
 
-			var event ThreatEvent
-			if err := json.Unmarshal(msg.Data, &event); err != nil {
-				log.Printf("Failed to unmarshal event: %v", err)
-				b.metrics.eventsDropped.Inc()
-				msg.Ack()
-				continue
+			if source == "legacy" {
+				var event ThreatEvent
+				if err := json.Unmarshal(msg.Data, &event); err != nil {
+					log.Printf("Error unmarshaling legacy event: %v", err)
+					msg.Ack()
+					continue
+				}
+				unifiedEvent = b.convertLegacyEvent(event)
+			} else {
+				var event RealThreatEvent
+				if err := json.Unmarshal(msg.Data, &event); err != nil {
+					log.Printf("Error unmarshaling real event: %v", err)
+					msg.Ack()
+					continue
+				}
+				unifiedEvent = b.convertRealEvent(event)
 			}
 
-			// Add to batch
-			b.addToBatch(event)
-			b.metrics.eventsProcessed.Inc()
-			b.metrics.latency.Observe(time.Since(start).Seconds())
+			// Check for duplicates
+			if !b.isDuplicate(unifiedEvent) {
+				b.addToBatch(unifiedEvent)
+				log.Printf("📥 %s THREAT: %s from %s (confidence: %.2f)", 
+					source, unifiedEvent.ThreatType, unifiedEvent.Source, unifiedEvent.Confidence)
+			} else {
+				log.Printf("🔄 Duplicate %s threat ignored: %s", source, unifiedEvent.ThreatType)
+			}
 
 			msg.Ack()
 		}
 	}
 }
 
-func (b *SIEMBridge) addToBatch(event ThreatEvent) {
+func (b *SIEMBridge) convertLegacyEvent(event ThreatEvent) UnifiedThreatEvent {
+	details, _ := json.Marshal(map[string]string{
+		"source": "legacy",
+		"event_time": event.EventTime.Format(time.RFC3339),
+	})
+
+	return UnifiedThreatEvent{
+		Timestamp:  event.EventTime,
+		SourceIP:   event.SourceIP,
+		ThreatType: event.ThreatType,
+		Severity:   event.Severity,
+		Message:    event.Message,
+		RawLog:     event.RawLog,
+		Country:    event.Country,
+		ASN:        event.ASN,
+		IsTor:      event.IsTor,
+		Confidence: event.Confidence,
+		Source:     "legacy",
+		Details:    string(details),
+	}
+}
+
+func (b *SIEMBridge) convertRealEvent(event RealThreatEvent) UnifiedThreatEvent {
+	details, _ := json.Marshal(event.Details)
+
+	return UnifiedThreatEvent{
+		Timestamp:  time.Unix(event.Timestamp, 0),
+		SourceIP:   event.SourceIP,
+		ThreatType: event.ThreatType,
+		Severity:   fmt.Sprintf("%d", event.Severity),
+		Message:    event.Payload,
+		RawLog:     event.Payload,
+		Country:    "",
+		ASN:        0,
+		IsTor:      0,
+		Confidence: float32(event.Confidence),
+		Source:     event.Source,
+		Details:    string(details),
+	}
+}
+
+func (b *SIEMBridge) isDuplicate(event UnifiedThreatEvent) bool {
+	key := fmt.Sprintf("%s:%s:%s", event.Source, event.ThreatType, event.SourceIP)
+	
+	if _, exists := b.reportedEvents.Load(key); exists {
+		return true
+	}
+	
+	// Store for 60 seconds to prevent duplicates
+	b.reportedEvents.Store(key, time.Now())
+	
+	// Clean up old entries after 60 seconds
+	go func() {
+		time.Sleep(60 * time.Second)
+		b.reportedEvents.Delete(key)
+	}()
+	
+	return false
+}
+
+func (b *SIEMBridge) addToBatch(event UnifiedThreatEvent) {
 	b.batchMutex.Lock()
 	defer b.batchMutex.Unlock()
 
 	b.eventBatch = append(b.eventBatch, event)
-	
+
 	// Flush if batch is full
-	if len(b.eventBatch) >= 1000 {
-		b.flushBatch()
+	if len(b.eventBatch) >= 100 {
+		go b.flushBatch()
 	}
 }
 
 func (b *SIEMBridge) flushBatch() {
+	b.batchMutex.Lock()
 	if len(b.eventBatch) == 0 {
+		b.batchMutex.Unlock()
 		return
 	}
 
-	batch, err := b.clickhouse.PrepareBatch(context.Background(),
-		`INSERT INTO siem.threats (
-			event_time, src_ip, threat_type, severity, message, 
-			raw_log, country, asn, is_tor, confidence
-		)`)
+	batch := make([]UnifiedThreatEvent, len(b.eventBatch))
+	copy(batch, b.eventBatch)
+	b.eventBatch = b.eventBatch[:0]
+	b.batchMutex.Unlock()
+
+	// Insert batch into ClickHouse
+	ctx := context.Background()
+	
+	query := `
+		INSERT INTO siem.threats (
+			timestamp, source_ip, threat_type, severity, message, 
+			raw_log, country, asn, is_tor, confidence, source, details
+		) VALUES (
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		)
+	`
+
+	batchInsert, err := b.clickhouse.PrepareBatch(ctx, query)
 	if err != nil {
-		log.Printf("Failed to prepare batch: %v", err)
-		b.metrics.eventsDropped.Add(float64(len(b.eventBatch)))
-		b.eventBatch = b.eventBatch[:0]
+		log.Printf("Error preparing batch: %v", err)
 		return
 	}
 
-	for _, event := range b.eventBatch {
-		err = batch.Append(
-			event.EventTime,
+	for _, event := range batch {
+		err := batchInsert.Append(
+			event.Timestamp,
 			event.SourceIP,
 			event.ThreatType,
 			event.Severity,
@@ -275,34 +362,27 @@ func (b *SIEMBridge) flushBatch() {
 			event.ASN,
 			event.IsTor,
 			event.Confidence,
+			event.Source,
+			event.Details,
 		)
 		if err != nil {
-			log.Printf("Failed to append to batch: %v", err)
-			continue
+			log.Printf("Error appending to batch: %v", err)
 		}
 	}
 
-	if err := batch.Send(); err != nil {
-		log.Printf("Failed to send batch: %v", err)
-		b.metrics.eventsDropped.Add(float64(len(b.eventBatch)))
+	if err := batchInsert.Send(); err != nil {
+		log.Printf("Error sending batch: %v", err)
 	} else {
-		b.metrics.batchSize.Observe(float64(len(b.eventBatch)))
-		log.Printf("✅ Inserted %d events into ClickHouse", len(b.eventBatch))
+		log.Printf("📊 Processed %d unified threat events", len(batch))
 	}
-
-	b.eventBatch = b.eventBatch[:0]
 }
 
 func (b *SIEMBridge) batchProcessor() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		b.batchMutex.Lock()
-		if len(b.eventBatch) > 0 {
-			b.flushBatch()
-		}
-		b.batchMutex.Unlock()
+		b.flushBatch()
 	}
 }
 
@@ -316,8 +396,6 @@ func (b *SIEMBridge) Close() {
 }
 
 func main() {
-	log.Println("🚀 Starting Ultra SIEM Bridge with mTLS...")
-
 	bridge, err := NewSIEMBridge()
 	if err != nil {
 		log.Fatalf("Failed to create bridge: %v", err)
@@ -325,6 +403,6 @@ func main() {
 	defer bridge.Close()
 
 	if err := bridge.processEvents(); err != nil {
-		log.Fatalf("Failed to process events: %v", err)
+		log.Fatalf("Error processing events: %v", err)
 	}
 } 

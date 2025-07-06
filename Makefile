@@ -1,269 +1,412 @@
-# 🛡️ Ultra SIEM - Development Makefile
-# Multi-language, cross-platform SIEM development automation
+# 🛡️ Ultra SIEM - Development & Deployment Makefile
+# 
+# Available targets:
+#   make help          - Show this help message
+#   make dev           - Start development environment
+#   make build         - Build all components
+#   make test          - Run all tests
+#   make lint          - Run linting and code quality checks
+#   make security      - Run security scans
+#   make benchmark     - Run performance benchmarks
+#   make clean         - Clean build artifacts
+#   make deploy        - Deploy to production
 
-.PHONY: help setup build test clean docker deploy
+.PHONY: help build test clean dev lint security benchmark deploy docs
 
-# Default target
-.DEFAULT_GOAL := help
+# Variables
+RUST_VERSION := 1.75
+GO_VERSION := 1.22
+ZIG_VERSION := 0.11.0
+DOCKER_REGISTRY := ghcr.io/ultra-siem
+VERSION := $(shell git describe --tags --always --dirty)
+BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+COMMIT_SHA := $(shell git rev-parse --short HEAD)
 
 # Colors for output
-BLUE := \033[34m
+RED := \033[31m
 GREEN := \033[32m
 YELLOW := \033[33m
-RED := \033[31m
+BLUE := \033[34m
+MAGENTA := \033[35m
+CYAN := \033[36m
+WHITE := \033[37m
 RESET := \033[0m
 
-# Project configuration
-PROJECT_NAME := ultra-siem
-VERSION := $(shell git describe --tags --always --dirty)
-BUILD_TIME := $(shell date +%Y-%m-%dT%H:%M:%S%z)
-GIT_COMMIT := $(shell git rev-parse HEAD)
-
-# Build flags
-RUST_BUILD_FLAGS := --release
-GO_BUILD_FLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)"
-ZIG_BUILD_FLAGS := -Doptimize=ReleaseFast
-
-##@ General Commands
-
-help: ## Display this help message
-	@echo "$(BLUE)🛡️  Ultra SIEM Development Commands$(RESET)"
+# Default target
+help: ## Show this help message
+	@echo "$(CYAN)🛡️  Ultra SIEM - Development Commands$(RESET)"
 	@echo ""
-	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make $(GREEN)<target>$(RESET)\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  $(GREEN)%-20s$(RESET) %s\n", $$1, $$2 } /^##@/ { printf "\n$(BLUE)%s$(RESET)\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@echo "$(YELLOW)📋 Available Commands:$(RESET)"
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  $(GREEN)%-15s$(RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "$(YELLOW)🔧 Build Information:$(RESET)"
+	@echo "  Version:    $(GREEN)$(VERSION)$(RESET)"
+	@echo "  Build Date: $(GREEN)$(BUILD_DATE)$(RESET)"
+	@echo "  Commit:     $(GREEN)$(COMMIT_SHA)$(RESET)"
 
-version: ## Show version information
-	@echo "$(BLUE)📋 Version Information$(RESET)"
-	@echo "Project: $(PROJECT_NAME)"
-	@echo "Version: $(VERSION)"
-	@echo "Build Time: $(BUILD_TIME)"
-	@echo "Git Commit: $(GIT_COMMIT)"
+# ==============================================================================
+# 🚀 Development Commands
+# ==============================================================================
 
-##@ Development Setup
+dev: ## Start development environment
+	@echo "$(CYAN)🚀 Starting Ultra SIEM development environment...$(RESET)"
+	@docker-compose -f docker-compose.dev.yml up -d
+	@echo "$(GREEN)✅ Development environment started$(RESET)"
+	@echo "$(YELLOW)📊 Services available at:$(RESET)"
+	@echo "  - Grafana:    http://localhost:3000"
+	@echo "  - ClickHouse: http://localhost:8123"
+	@echo "  - NATS:       http://localhost:8222"
+	@echo "  - API:        http://localhost:8080"
 
-setup: ## Set up development environment
-	@echo "$(BLUE)🔧 Setting up development environment...$(RESET)"
-	@./scripts/setup-dev-environment.sh
-	@echo "$(GREEN)✅ Development environment ready!$(RESET)"
+dev-stop: ## Stop development environment
+	@echo "$(CYAN)🛑 Stopping development environment...$(RESET)"
+	@docker-compose -f docker-compose.dev.yml down
+	@echo "$(GREEN)✅ Development environment stopped$(RESET)"
 
-install-tools: ## Install development tools
-	@echo "$(BLUE)🛠️  Installing development tools...$(RESET)"
-	@command -v rustup >/dev/null || (echo "Installing Rust..." && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)
-	@rustup component add clippy rustfmt
-	@command -v go >/dev/null || echo "$(YELLOW)⚠️  Go not found. Please install Go 1.21+$(RESET)"
-	@echo "$(GREEN)✅ Tools installed!$(RESET)"
+dev-logs: ## Show development environment logs
+	@docker-compose -f docker-compose.dev.yml logs -f
 
-deps: ## Install dependencies
-	@echo "$(BLUE)📦 Installing dependencies...$(RESET)"
-	@cd rust-core && cargo fetch
-	@cd go-services && go mod download
-	@echo "$(GREEN)✅ Dependencies installed!$(RESET)"
+dev-status: ## Show status of development services
+	@docker-compose -f docker-compose.dev.yml ps
 
-##@ Building
+# ==============================================================================
+# 🏗️ Build Commands
+# ==============================================================================
 
-build: build-rust build-go build-zig ## Build all components
-	@echo "$(GREEN)✅ All components built successfully!$(RESET)"
+build: build-rust build-go build-zig build-docker ## Build all components
+	@echo "$(GREEN)✅ All components built successfully$(RESET)"
 
-build-rust: ## Build Rust core engine
-	@echo "$(BLUE)🦀 Building Rust core engine...$(RESET)"
-	@cd rust-core && cargo build $(RUST_BUILD_FLAGS)
-	@echo "$(GREEN)✅ Rust core engine built!$(RESET)"
+build-rust: ## Build Rust components
+	@echo "$(CYAN)🦀 Building Rust core...$(RESET)"
+	@cd rust-core && cargo build --release
+	@echo "$(GREEN)✅ Rust core built$(RESET)"
 
 build-go: ## Build Go services
-	@echo "$(BLUE)🐹 Building Go services...$(RESET)"
-	@cd go-services && go build $(GO_BUILD_FLAGS) -o ../bin/bridge ./bridge
-	@cd go-services && go build $(GO_BUILD_FLAGS) -o ../bin/siem-processor ./processor
-	@echo "$(GREEN)✅ Go services built!$(RESET)"
+	@echo "$(CYAN)🐹 Building Go services...$(RESET)"
+	@cd go-services && go build -ldflags="-X main.version=$(VERSION) -X main.buildDate=$(BUILD_DATE) -X main.commitSHA=$(COMMIT_SHA)" -o bin/ultra-siem-bridge ./bridge
+	@cd go-services && go build -ldflags="-X main.version=$(VERSION) -X main.buildDate=$(BUILD_DATE) -X main.commitSHA=$(COMMIT_SHA)" -o bin/ultra-siem-processor .
+	@echo "$(GREEN)✅ Go services built$(RESET)"
 
 build-zig: ## Build Zig query engine
-	@echo "$(BLUE)⚡ Building Zig query engine...$(RESET)"
-	@cd zig-query && zig build $(ZIG_BUILD_FLAGS)
-	@echo "$(GREEN)✅ Zig query engine built!$(RESET)"
+	@echo "$(CYAN)⚡ Building Zig query engine...$(RESET)"
+	@cd zig-query && zig build -Doptimize=ReleaseFast
+	@echo "$(GREEN)✅ Zig query engine built$(RESET)"
 
-##@ Testing
+build-docker: ## Build Docker images
+	@echo "$(CYAN)🐳 Building Docker images...$(RESET)"
+	@docker build -t $(DOCKER_REGISTRY)/rust-core:$(VERSION) ./rust-core
+	@docker build -t $(DOCKER_REGISTRY)/rust-core:latest ./rust-core
+	@docker build -t $(DOCKER_REGISTRY)/go-services:$(VERSION) ./go-services
+	@docker build -t $(DOCKER_REGISTRY)/go-services:latest ./go-services
+	@docker build -t $(DOCKER_REGISTRY)/zig-query:$(VERSION) ./zig-query
+	@docker build -t $(DOCKER_REGISTRY)/zig-query:latest ./zig-query
+	@echo "$(GREEN)✅ Docker images built$(RESET)"
+
+build-cross: ## Build for multiple platforms
+	@echo "$(CYAN)🌍 Building for multiple platforms...$(RESET)"
+	@cd rust-core && cargo build --release --target x86_64-unknown-linux-gnu
+	@cd rust-core && cargo build --release --target x86_64-pc-windows-gnu
+	@cd rust-core && cargo build --release --target x86_64-apple-darwin
+	@cd rust-core && cargo build --release --target aarch64-apple-darwin
+	@echo "$(GREEN)✅ Cross-platform builds completed$(RESET)"
+
+# ==============================================================================
+# 🧪 Testing Commands
+# ==============================================================================
 
 test: test-rust test-go test-zig test-integration ## Run all tests
-	@echo "$(GREEN)✅ All tests completed!$(RESET)"
+	@echo "$(GREEN)✅ All tests completed$(RESET)"
 
 test-rust: ## Run Rust tests
-	@echo "$(BLUE)🦀 Running Rust tests...$(RESET)"
-	@cd rust-core && cargo test --verbose
+	@echo "$(CYAN)🦀 Running Rust tests...$(RESET)"
+	@cd rust-core && cargo test --all-features
+	@echo "$(GREEN)✅ Rust tests passed$(RESET)"
 
 test-go: ## Run Go tests
-	@echo "$(BLUE)🐹 Running Go tests...$(RESET)"
-	@cd go-services && go test -v -race ./...
+	@echo "$(CYAN)🐹 Running Go tests...$(RESET)"
+	@cd go-services && go test -v -race -coverprofile=coverage.out ./...
+	@echo "$(GREEN)✅ Go tests passed$(RESET)"
 
 test-zig: ## Run Zig tests
-	@echo "$(BLUE)⚡ Running Zig tests...$(RESET)"
-	@cd zig-query && zig test src/main.zig
+	@echo "$(CYAN)⚡ Running Zig tests...$(RESET)"
+	@cd zig-query && zig build test
+	@echo "$(GREEN)✅ Zig tests passed$(RESET)"
 
 test-integration: ## Run integration tests
-	@echo "$(BLUE)🔗 Running integration tests...$(RESET)"
-	@docker-compose -f docker-compose.test.yml up --build -d
+	@echo "$(CYAN)🔗 Running integration tests...$(RESET)"
+	@docker-compose -f docker-compose.test.yml up -d
 	@sleep 30
-	@curl -f http://localhost:8123/ping || (echo "$(RED)❌ ClickHouse not responding$(RESET)" && exit 1)
-	@curl -f http://localhost:3000/api/health || (echo "$(RED)❌ Grafana not responding$(RESET)" && exit 1)
-	@docker-compose -f docker-compose.test.yml down -v
-	@echo "$(GREEN)✅ Integration tests passed!$(RESET)"
+	@python3 tests/integration/run_tests.py
+	@docker-compose -f docker-compose.test.yml down
+	@echo "$(GREEN)✅ Integration tests passed$(RESET)"
 
-test-coverage: ## Run tests with coverage
-	@echo "$(BLUE)📊 Running tests with coverage...$(RESET)"
-	@cd rust-core && cargo tarpaulin --out html --output-dir ../coverage/rust
-	@cd go-services && go test -coverprofile=../coverage/go/coverage.out ./...
-	@echo "$(GREEN)✅ Coverage reports generated in coverage/$(RESET)"
+test-coverage: ## Generate test coverage reports
+	@echo "$(CYAN)📊 Generating coverage reports...$(RESET)"
+	@cd rust-core && cargo tarpaulin --out Html --output-dir ../reports/coverage/rust
+	@cd go-services && go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o ../reports/coverage/go/coverage.html
+	@echo "$(GREEN)✅ Coverage reports generated in reports/coverage/$(RESET)"
 
-##@ Code Quality
+# ==============================================================================
+# 🔍 Code Quality Commands
+# ==============================================================================
 
-lint: lint-rust lint-go lint-zig ## Run all linters
-	@echo "$(GREEN)✅ All linting completed!$(RESET)"
+lint: lint-rust lint-go lint-zig lint-docker ## Run all linting
+	@echo "$(GREEN)✅ All linting completed$(RESET)"
 
-lint-rust: ## Run Rust linting
-	@echo "$(BLUE)🦀 Running Rust linting...$(RESET)"
-	@cd rust-core && cargo clippy -- -D warnings
+lint-rust: ## Lint Rust code
+	@echo "$(CYAN)🦀 Linting Rust code...$(RESET)"
 	@cd rust-core && cargo fmt --check
+	@cd rust-core && cargo clippy --all-targets --all-features -- -D warnings
+	@echo "$(GREEN)✅ Rust linting passed$(RESET)"
 
-lint-go: ## Run Go linting
-	@echo "$(BLUE)🐹 Running Go linting...$(RESET)"
-	@cd go-services && go vet ./...
+lint-go: ## Lint Go code
+	@echo "$(CYAN)🐹 Linting Go code...$(RESET)"
 	@cd go-services && go fmt ./...
+	@cd go-services && go vet ./...
+	@cd go-services && golangci-lint run
+	@echo "$(GREEN)✅ Go linting passed$(RESET)"
 
-lint-zig: ## Run Zig linting
-	@echo "$(BLUE)⚡ Running Zig linting...$(RESET)"
+lint-zig: ## Lint Zig code
+	@echo "$(CYAN)⚡ Linting Zig code...$(RESET)"
 	@cd zig-query && zig fmt --check src/
+	@echo "$(GREEN)✅ Zig linting passed$(RESET)"
 
-fix: ## Fix code formatting
-	@echo "$(BLUE)🎨 Fixing code formatting...$(RESET)"
+lint-docker: ## Lint Dockerfiles
+	@echo "$(CYAN)🐳 Linting Dockerfiles...$(RESET)"
+	@hadolint rust-core/Dockerfile
+	@hadolint go-services/Dockerfile
+	@hadolint zig-query/Dockerfile
+	@echo "$(GREEN)✅ Docker linting passed$(RESET)"
+
+lint-fix: ## Auto-fix linting issues
+	@echo "$(CYAN)🔧 Auto-fixing linting issues...$(RESET)"
 	@cd rust-core && cargo fmt
 	@cd go-services && go fmt ./...
 	@cd zig-query && zig fmt src/
-	@echo "$(GREEN)✅ Code formatting fixed!$(RESET)"
+	@echo "$(GREEN)✅ Linting issues fixed$(RESET)"
 
-security-check: ## Run security checks
-	@echo "$(BLUE)🔒 Running security checks...$(RESET)"
+# ==============================================================================
+# 🔒 Security Commands
+# ==============================================================================
+
+security: security-audit security-scan security-deps ## Run all security checks
+	@echo "$(GREEN)✅ All security checks completed$(RESET)"
+
+security-audit: ## Run security audit
+	@echo "$(CYAN)🔍 Running security audit...$(RESET)"
 	@cd rust-core && cargo audit
-	@cd go-services && go list -json -m all | nancy sleuth
-	@docker run --rm -v $(PWD):/src returntocorp/semgrep --config=auto /src
-	@echo "$(GREEN)✅ Security checks completed!$(RESET)"
+	@cd go-services && govulncheck ./...
+	@echo "$(GREEN)✅ Security audit passed$(RESET)"
 
-##@ Docker Operations
+security-scan: ## Run security scan with Semgrep
+	@echo "$(CYAN)🛡️ Running security scan...$(RESET)"
+	@semgrep --config=auto --json --output=reports/semgrep-results.json .
+	@echo "$(GREEN)✅ Security scan completed$(RESET)"
 
-docker: docker-build ## Build all Docker images
-	@echo "$(GREEN)✅ All Docker images built!$(RESET)"
+security-deps: ## Check dependencies for vulnerabilities
+	@echo "$(CYAN)📦 Checking dependencies...$(RESET)"
+	@trivy fs --security-checks vuln .
+	@echo "$(GREEN)✅ Dependency check completed$(RESET)"
 
-docker-build: ## Build Docker images
-	@echo "$(BLUE)🐳 Building Docker images...$(RESET)"
-	@docker-compose -f docker-compose.simple.yml build
-	@echo "$(GREEN)✅ Docker images built!$(RESET)"
+security-secrets: ## Scan for secrets
+	@echo "$(CYAN)🔐 Scanning for secrets...$(RESET)"
+	@trufflehog filesystem --directory . --json > reports/secrets-scan.json
+	@echo "$(GREEN)✅ Secrets scan completed$(RESET)"
 
-docker-up: ## Start all services with Docker
-	@echo "$(BLUE)🚀 Starting Ultra SIEM services...$(RESET)"
-	@docker-compose -f docker-compose.simple.yml up -d
-	@echo "$(GREEN)✅ Services started!$(RESET)"
-	@echo "$(BLUE)🌐 Access URLs:$(RESET)"
-	@echo "  • Grafana: http://localhost:3000 (admin/admin)"
-	@echo "  • ClickHouse: http://localhost:8123"
-	@echo "  • NATS: http://localhost:8222"
+# ==============================================================================
+# ⚡ Performance Commands
+# ==============================================================================
 
-docker-down: ## Stop all services
-	@echo "$(BLUE)🛑 Stopping Ultra SIEM services...$(RESET)"
-	@docker-compose -f docker-compose.simple.yml down -v
-	@echo "$(GREEN)✅ Services stopped!$(RESET)"
+benchmark: benchmark-rust benchmark-go benchmark-load ## Run all benchmarks
+	@echo "$(GREEN)✅ All benchmarks completed$(RESET)"
 
-docker-logs: ## Show service logs
-	@docker-compose -f docker-compose.simple.yml logs -f
+benchmark-rust: ## Run Rust benchmarks
+	@echo "$(CYAN)🦀 Running Rust benchmarks...$(RESET)"
+	@cd rust-core && cargo bench --features benchmark
+	@echo "$(GREEN)✅ Rust benchmarks completed$(RESET)"
 
-docker-clean: ## Clean Docker resources
-	@echo "$(BLUE)🧹 Cleaning Docker resources...$(RESET)"
-	@docker-compose -f docker-compose.simple.yml down -v --remove-orphans
-	@docker system prune -f
-	@echo "$(GREEN)✅ Docker resources cleaned!$(RESET)"
+benchmark-go: ## Run Go benchmarks
+	@echo "$(CYAN)🐹 Running Go benchmarks...$(RESET)"
+	@cd go-services && go test -bench=. -benchmem ./...
+	@echo "$(GREEN)✅ Go benchmarks completed$(RESET)"
 
-##@ Development
+benchmark-load: ## Run load testing
+	@echo "$(CYAN)🚀 Running load tests...$(RESET)"
+	@k6 run --out json=reports/loadtest-results.json scripts/load_test.js
+	@echo "$(GREEN)✅ Load testing completed$(RESET)"
 
-dev: docker-up ## Start development environment
-	@echo "$(BLUE)💻 Development environment ready!$(RESET)"
-	@echo "$(YELLOW)📝 Watching for file changes...$(RESET)"
+benchmark-memory: ## Profile memory usage
+	@echo "$(CYAN)🧠 Profiling memory usage...$(RESET)"
+	@docker stats --no-stream --format "table {{.Container}}\t{{.MemUsage}}\t{{.CPUPerc}}" > reports/memory-profile.txt
+	@echo "$(GREEN)✅ Memory profiling completed$(RESET)"
 
-dev-rust: ## Start Rust development with hot reload
-	@echo "$(BLUE)🦀 Starting Rust development...$(RESET)"
-	@cd rust-core && cargo watch -x 'run'
-
-dev-go: ## Start Go development with hot reload
-	@echo "$(BLUE)🐹 Starting Go development...$(RESET)"
-	@cd go-services && air -c .air.toml
-
-benchmark: ## Run performance benchmarks
-	@echo "$(BLUE)⚡ Running performance benchmarks...$(RESET)"
-	@cd rust-core && cargo bench
-	@cd go-services && go test -bench=. ./...
-	@echo "$(GREEN)✅ Benchmarks completed!$(RESET)"
-
-profile: ## Profile application performance
-	@echo "$(BLUE)📊 Profiling application performance...$(RESET)"
-	@cd rust-core && cargo flamegraph --bin siem-core
-	@echo "$(GREEN)✅ Profiling completed! Check flamegraph.svg$(RESET)"
-
-##@ Database Operations
-
-db-setup: ## Set up database schema
-	@echo "$(BLUE)🗄️  Setting up database schema...$(RESET)"
-	@./scripts/setup-database.sh
-	@echo "$(GREEN)✅ Database schema ready!$(RESET)"
-
-db-reset: ## Reset database to clean state
-	@echo "$(BLUE)🔄 Resetting database...$(RESET)"
-	@docker-compose -f docker-compose.simple.yml exec clickhouse clickhouse-client --query "DROP DATABASE IF EXISTS siem"
-	@make db-setup
-	@echo "$(GREEN)✅ Database reset complete!$(RESET)"
-
-db-backup: ## Backup database
-	@echo "$(BLUE)💾 Creating database backup...$(RESET)"
-	@mkdir -p backups
-	@docker-compose -f docker-compose.simple.yml exec clickhouse clickhouse-client --query "BACKUP DATABASE siem TO 'backups/siem_$(shell date +%Y%m%d_%H%M%S).zip'"
-	@echo "$(GREEN)✅ Database backup created!$(RESET)"
-
-##@ Deployment
-
-deploy-local: docker-up db-setup ## Deploy locally for testing
-	@echo "$(GREEN)🎉 Ultra SIEM deployed locally!$(RESET)"
-
-deploy-staging: ## Deploy to staging environment
-	@echo "$(BLUE)🚀 Deploying to staging...$(RESET)"
-	@./scripts/deploy-staging.sh
-	@echo "$(GREEN)✅ Deployed to staging!$(RESET)"
-
-deploy-prod: ## Deploy to production
-	@echo "$(BLUE)🚀 Deploying to production...$(RESET)"
-	@./scripts/deploy-production.sh
-	@echo "$(GREEN)✅ Deployed to production!$(RESET)"
-
-##@ Utilities
-
-clean: ## Clean build artifacts
-	@echo "$(BLUE)🧹 Cleaning build artifacts...$(RESET)"
-	@cd rust-core && cargo clean
-	@cd go-services && go clean -cache -modcache -testcache
-	@cd zig-query && rm -rf zig-cache zig-out
-	@rm -rf bin/ coverage/ dist/
-	@echo "$(GREEN)✅ Build artifacts cleaned!$(RESET)"
+# ==============================================================================
+# 📚 Documentation Commands
+# ==============================================================================
 
 docs: ## Generate documentation
-	@echo "$(BLUE)📚 Generating documentation...$(RESET)"
-	@cd rust-core && cargo doc --no-deps --open
-	@cd go-services && godoc -http=:6060 &
-	@echo "$(GREEN)✅ Documentation generated!$(RESET)"
+	@echo "$(CYAN)📚 Generating documentation...$(RESET)"
+	@cd rust-core && cargo doc --no-deps
+	@cd go-services && godoc -html > ../docs/go-api.html
+	@echo "$(GREEN)✅ Documentation generated$(RESET)"
 
-release: ## Prepare release
-	@echo "$(BLUE)🎁 Preparing release...$(RESET)"
-	@./scripts/prepare-release.sh $(VERSION)
-	@echo "$(GREEN)✅ Release $(VERSION) prepared!$(RESET)"
+docs-serve: ## Serve documentation locally
+	@echo "$(CYAN)📖 Serving documentation at http://localhost:8000...$(RESET)"
+	@python3 -m http.server 8000 -d docs/
 
-status: ## Show system status
-	@echo "$(BLUE)📊 Ultra SIEM System Status$(RESET)"
-	@echo ""
-	@echo "$(BLUE)🐳 Docker Services:$(RESET)"
-	@docker-compose -f docker-compose.simple.yml ps 2>/dev/null || echo "  No services running"
-	@echo ""
-	@echo "$(BLUE)🌐 Service Health:$(RESET)"
-	@curl -s http://localhost:8123/ping >/dev/null && echo "  ✅ ClickHouse: Healthy" || echo "  ❌ ClickHouse: Down"
-	@curl -s http://localhost:3000/api/health >/dev/null && echo "  ✅ Grafana: Healthy" || echo "  ❌ Grafana: Down"
-	@curl -s http://localhost:8222/varz >/dev/null && echo "  ✅ NATS: Healthy" || echo "  ❌ NATS: Down" 
+docs-api: ## Generate API documentation
+	@echo "$(CYAN)🔌 Generating API documentation...$(RESET)"
+	@swagger generate spec -o docs/api-spec.yaml
+	@echo "$(GREEN)✅ API documentation generated$(RESET)"
+
+# ==============================================================================
+# 🚀 Deployment Commands
+# ==============================================================================
+
+deploy: deploy-build deploy-push deploy-k8s ## Deploy to production
+	@echo "$(GREEN)✅ Deployment completed$(RESET)"
+
+deploy-build: ## Build for deployment
+	@echo "$(CYAN)🏗️ Building for deployment...$(RESET)"
+	@$(MAKE) build-cross
+	@$(MAKE) build-docker
+	@echo "$(GREEN)✅ Build for deployment completed$(RESET)"
+
+deploy-push: ## Push Docker images
+	@echo "$(CYAN)📤 Pushing Docker images...$(RESET)"
+	@docker push $(DOCKER_REGISTRY)/rust-core:$(VERSION)
+	@docker push $(DOCKER_REGISTRY)/rust-core:latest
+	@docker push $(DOCKER_REGISTRY)/go-services:$(VERSION)
+	@docker push $(DOCKER_REGISTRY)/go-services:latest
+	@docker push $(DOCKER_REGISTRY)/zig-query:$(VERSION)
+	@docker push $(DOCKER_REGISTRY)/zig-query:latest
+	@echo "$(GREEN)✅ Docker images pushed$(RESET)"
+
+deploy-k8s: ## Deploy to Kubernetes
+	@echo "$(CYAN)☸️ Deploying to Kubernetes...$(RESET)"
+	@helm upgrade --install ultra-siem ./charts/ultra-siem \
+		--set image.tag=$(VERSION) \
+		--set global.version=$(VERSION)
+	@echo "$(GREEN)✅ Kubernetes deployment completed$(RESET)"
+
+deploy-staging: ## Deploy to staging environment
+	@echo "$(CYAN)🎭 Deploying to staging...$(RESET)"
+	@docker-compose -f docker-compose.staging.yml up -d
+	@echo "$(GREEN)✅ Staging deployment completed$(RESET)"
+
+# ==============================================================================
+# 🧹 Cleanup Commands
+# ==============================================================================
+
+clean: clean-rust clean-go clean-zig clean-docker ## Clean all build artifacts
+	@echo "$(GREEN)✅ Cleanup completed$(RESET)"
+
+clean-rust: ## Clean Rust build artifacts
+	@echo "$(CYAN)🦀 Cleaning Rust artifacts...$(RESET)"
+	@cd rust-core && cargo clean
+	@echo "$(GREEN)✅ Rust artifacts cleaned$(RESET)"
+
+clean-go: ## Clean Go build artifacts
+	@echo "$(CYAN)🐹 Cleaning Go artifacts...$(RESET)"
+	@cd go-services && go clean
+	@rm -rf go-services/bin/
+	@echo "$(GREEN)✅ Go artifacts cleaned$(RESET)"
+
+clean-zig: ## Clean Zig build artifacts
+	@echo "$(CYAN)⚡ Cleaning Zig artifacts...$(RESET)"
+	@cd zig-query && rm -rf zig-cache/ zig-out/
+	@echo "$(GREEN)✅ Zig artifacts cleaned$(RESET)"
+
+clean-docker: ## Clean Docker images and containers
+	@echo "$(CYAN)🐳 Cleaning Docker artifacts...$(RESET)"
+	@docker system prune -f
+	@docker image prune -f
+	@echo "$(GREEN)✅ Docker artifacts cleaned$(RESET)"
+
+clean-reports: ## Clean test and benchmark reports
+	@echo "$(CYAN)📊 Cleaning reports...$(RESET)"
+	@rm -rf reports/
+	@mkdir -p reports/coverage/{rust,go} reports/benchmarks reports/security
+	@echo "$(GREEN)✅ Reports cleaned$(RESET)"
+
+# ==============================================================================
+# 🛠️ Utility Commands
+# ==============================================================================
+
+setup: ## Setup development environment
+	@echo "$(CYAN)🛠️ Setting up development environment...$(RESET)"
+	@./scripts/setup-dev-environment.sh
+	@echo "$(GREEN)✅ Development environment setup completed$(RESET)"
+
+install-deps: ## Install all dependencies
+	@echo "$(CYAN)📦 Installing dependencies...$(RESET)"
+	@rustup update $(RUST_VERSION)
+	@cd rust-core && cargo fetch
+	@cd go-services && go mod download
+	@echo "$(GREEN)✅ Dependencies installed$(RESET)"
+
+update-deps: ## Update all dependencies
+	@echo "$(CYAN)⬆️ Updating dependencies...$(RESET)"
+	@cd rust-core && cargo update
+	@cd go-services && go get -u ./...
+	@echo "$(GREEN)✅ Dependencies updated$(RESET)"
+
+version: ## Show version information
+	@echo "$(CYAN)ℹ️ Version Information:$(RESET)"
+	@echo "  Version:    $(GREEN)$(VERSION)$(RESET)"
+	@echo "  Build Date: $(GREEN)$(BUILD_DATE)$(RESET)"
+	@echo "  Commit:     $(GREEN)$(COMMIT_SHA)$(RESET)"
+	@echo "  Rust:       $(GREEN)$(RUST_VERSION)$(RESET)"
+	@echo "  Go:         $(GREEN)$(GO_VERSION)$(RESET)"
+	@echo "  Zig:        $(GREEN)$(ZIG_VERSION)$(RESET)"
+
+# ==============================================================================
+# 📊 Monitoring Commands
+# ==============================================================================
+
+monitor: ## Monitor running services
+	@echo "$(CYAN)📊 Monitoring Ultra SIEM services...$(RESET)"
+	@watch -n 2 'docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}"'
+
+logs: ## Show service logs
+	@echo "$(CYAN)📋 Showing service logs...$(RESET)"
+	@docker-compose logs -f
+
+health: ## Check service health
+	@echo "$(CYAN)🏥 Checking service health...$(RESET)"
+	@curl -s http://localhost:8123/ping && echo "✅ ClickHouse healthy"
+	@curl -s http://localhost:3000/api/health && echo "✅ Grafana healthy"
+	@curl -s http://localhost:8080/health && echo "✅ SIEM API healthy"
+	@curl -s http://localhost:8222/varz && echo "✅ NATS healthy"
+
+# ==============================================================================
+# 🎭 Demo Commands
+# ==============================================================================
+
+demo: ## Start demo environment with sample data
+	@echo "$(CYAN)🎭 Starting Ultra SIEM demo...$(RESET)"
+	@docker-compose -f examples/docker-compose.example.yml up -d
+	@echo "$(GREEN)✅ Demo environment started$(RESET)"
+	@echo "$(YELLOW)📊 Demo services available at:$(RESET)"
+	@echo "  - Demo App:   http://localhost:8090"
+	@echo "  - Grafana:    http://localhost:3000 (admin/admin123)"
+	@echo "  - ClickHouse: http://localhost:8123"
+
+demo-stop: ## Stop demo environment
+	@echo "$(CYAN)🛑 Stopping demo environment...$(RESET)"
+	@docker-compose -f examples/docker-compose.example.yml down
+	@echo "$(GREEN)✅ Demo environment stopped$(RESET)"
+
+demo-logs: ## Show demo environment logs
+	@docker-compose -f examples/docker-compose.example.yml logs -f
+
+demo-reset: ## Reset demo environment (clean slate)
+	@echo "$(CYAN)🔄 Resetting demo environment...$(RESET)"
+	@docker-compose -f examples/docker-compose.example.yml down -v
+	@$(MAKE) demo
+
+# Create necessary directories
+$(shell mkdir -p reports/coverage/{rust,go} reports/benchmarks reports/security examples/html)
+
+# Default goal
+.DEFAULT_GOAL := help 

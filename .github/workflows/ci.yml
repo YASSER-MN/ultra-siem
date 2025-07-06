@@ -161,3 +161,9 @@ jobs:
         run: |
           echo "🎉 Ultra SIEM CI/CD Pipeline completed successfully!"
           echo "All tests passed and builds completed."
+
+      - name: ❌ Failure Notification
+        if: failure()
+        run: |
+          echo "❌ CI/CD Pipeline failed!"
+          echo "Please check the workflow logs for details."
