@@ -52,23 +52,15 @@ Ultra SIEM is a **groundbreaking enterprise-grade Security Information and Event
 
 ```mermaid
 graph TB
-    A[🦀 Rust Core Engine<br/>SIMD-Optimized Threat Detection] --> D[🗄️ ClickHouse DB<br/>Columnar Analytics]
-    B[🐹 Go Data Processor<br/>Real-time Event Pipeline] --> D
-    C[⚡ Zig Query Engine<br/>High-Performance Analytics] --> D
-    E[📡 NATS Messaging<br/>Zero-Latency Streaming] --> A
+    A[Rust Core Engine<br/>SIMD-Optimized Threat Detection] --> D[ClickHouse DB<br/>Columnar Analytics]
+    B[Go Data Processor<br/>Real-time Event Pipeline] --> D
+    C[Zig Query Engine<br/>High-Performance Analytics] --> D
+    E[NATS Messaging<br/>Zero-Latency Streaming] --> A
     E --> B
-    F[📊 Grafana Dashboards<br/>Real-time Visualizations] --> D
-    G[🔒 Security Layer<br/>Enterprise Authentication] --> A
+    F[Grafana Dashboards<br/>Real-time Visualizations] --> D
+    G[Security Layer<br/>Enterprise Authentication] --> A
     G --> B
     G --> C
-
-    style A fill:#ff6b35,stroke:#333,stroke-width:3px
-    style B fill:#00ADD8,stroke:#333,stroke-width:3px
-    style C fill:#F7A41D,stroke:#333,stroke-width:3px
-    style D fill:#FFCC01,stroke:#333,stroke-width:3px
-    style E fill:#27AE60,stroke:#333,stroke-width:3px
-    style F fill:#F39C12,stroke:#333,stroke-width:3px
-    style G fill:#E74C3C,stroke:#333,stroke-width:3px
 ```
 
 </div>
@@ -275,12 +267,24 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deta
 
 <div align="center">
 
-[![Website](https://img.shields.io/badge/Website-ultra--siem.com-00ff00?style=for-the-badge)](https://ultra-siem.com)
-[![Email](https://img.shields.io/badge/Email-contact@ultra--siem.com-00ff00?style=for-the-badge)](mailto:contact@ultra-siem.com)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Ultra_SIEM-00ff00?style=for-the-badge&logo=linkedin)](https://linkedin.com/company/ultra-siem)
-[![Twitter](https://img.shields.io/badge/Twitter-@UltraSIEM-00ff00?style=for-the-badge&logo=twitter)](https://twitter.com/UltraSIEM)
+[![Email](https://img.shields.io/badge/Email-yassermn238@gmail.com-00ff00?style=for-the-badge&logo=gmail)](mailto:yassermn238@gmail.com)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Yasser_Mounim-00ff00?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/yasser-mounim)
+[![GitHub](https://img.shields.io/badge/GitHub-YASSER--MN-00ff00?style=for-the-badge&logo=github)](https://github.com/YASSER-MN)
 
 </div>
+
+**👨‍💼 Contact Information:**
+
+- **Name**: Yasser Mounim
+- **Company**: MasterDevORGANISATION
+- **Email**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
+- **GitHub**: [@YASSER-MN](https://github.com/YASSER-MN)
+
+**💼 Professional Support:**
+
+- **Enterprise Support**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
+- **Security Issues**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
+- **Technical Questions**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
 
 ---
 

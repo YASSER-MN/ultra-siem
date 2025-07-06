@@ -1,14 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 💬 Community Discord
-    url: https://discord.gg/ultra-siem
-    about: Join our Discord server for general questions and community support
-  - name: 📚 Documentation
-    url: https://docs.ultra-siem.com
-    about: Check our comprehensive documentation for setup and usage guides
+  - name: 💬 Contact Developer
+    url: mailto:yassermn238@gmail.com
+    about: Contact Yasser Mounim directly for questions and support
   - name: 🔒 Security Vulnerability
-    url: mailto:security@ultra-siem.com
+    url: mailto:yassermn238@gmail.com
     about: Please report security vulnerabilities privately via email
   - name: 📖 Discussions
-    url: https://github.com/ultra-siem/ultra-siem/discussions
+    url: https://github.com/YASSER-MN/ultra-siem/discussions
     about: Join discussions about features, ideas, and general questions

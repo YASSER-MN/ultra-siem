@@ -197,12 +197,24 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deta
 
 <div align="center">
 
-[![Website](https://img.shields.io/badge/Website-ultra--siem.com-00ff00?style=for-the-badge)](https://ultra-siem.com)
-[![Email](https://img.shields.io/badge/Email-contact@ultra--siem.com-00ff00?style=for-the-badge)](mailto:contact@ultra-siem.com)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Ultra_SIEM-00ff00?style=for-the-badge&logo=linkedin)](https://linkedin.com/company/ultra-siem)
-[![Twitter](https://img.shields.io/badge/Twitter-@UltraSIEM-00ff00?style=for-the-badge&logo=twitter)](https://twitter.com/UltraSIEM)
+[![Email](https://img.shields.io/badge/Email-yassermn238@gmail.com-00ff00?style=for-the-badge&logo=gmail)](mailto:yassermn238@gmail.com)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Yasser_Mounim-00ff00?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/yasser-mounim)
+[![GitHub](https://img.shields.io/badge/GitHub-YASSER--MN-00ff00?style=for-the-badge&logo=github)](https://github.com/YASSER-MN)
 
 </div>
+
+**👨‍💼 Contact Information:**
+
+- **Name**: Yasser Mounim
+- **Company**: MasterDevORGANISATION
+- **Email**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
+- **GitHub**: [@YASSER-MN](https://github.com/YASSER-MN)
+
+**💼 Professional Support:**
+
+- **Enterprise Support**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
+- **Security Issues**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
+- **Technical Questions**: [yassermn238@gmail.com](mailto:yassermn238@gmail.com)
 
 ---
 
