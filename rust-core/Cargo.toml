@@ -31,6 +31,9 @@ crossbeam = "0.8"
 bcrypt = "0.15"
 jsonwebtoken = "9.2"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
 [target.'cfg(not(windows))'.dependencies]
 cuda = { version = "0.3", optional = true }
 nvml = { version = "0.0.2", optional = true }
@@ -46,8 +49,21 @@ vulkan-support = ["vulkano", "ash"]
 ml-inference = []
 dashboard = []
 analytics = []
+benchmark = ["criterion"]
 full-acceleration = ["gpu-acceleration", "vulkan-support", "ml-inference"]
 full-features = ["gpu-acceleration", "vulkan-support", "ml-inference", "dashboard", "analytics"]
+
+[[bench]]
+name = "threat_detection"
+harness = false
+
+[[bench]]
+name = "event_processing"
+harness = false
+
+[[bench]]
+name = "pattern_matching"
+harness = false
 
 [profile.release]
 opt-level = 3

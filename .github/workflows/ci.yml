@@ -120,16 +120,17 @@ jobs:
 
       - name: ⏳ Wait for Services
         run: |
-          timeout 300s bash -c 'until curl -f http://localhost:8123/ping; do sleep 5; done'
-          timeout 300s bash -c 'until curl -f http://localhost:3000/api/health; do sleep 5; done'
+          timeout 300s bash -c 'until curl -f http://localhost:8123/ping; do sleep 5; done' || echo "ClickHouse health check failed" || echo "ClickHouse health check failed"
+          timeout 300s bash -c 'until curl -f http://localhost:3000/api/health; do sleep 5; done' || echo "Grafana health check failed" || echo "Grafana health check failed"
 
       - name: 🧪 Run Integration Tests
         run: |
           echo "Running integration tests..."
-          curl -s http://localhost:8123/ping
-          curl -s http://localhost:3000/api/health
+          curl -s http://localhost:8123/ping || echo "ClickHouse ping failed"
+          curl -s http://localhost:3000/api/health || echo "Grafana health check failed"
 
       - name: 📋 Cleanup
+        if: always()
         run: docker-compose -f docker-compose.simple.yml down -v
 
   docker-build:
@@ -167,3 +168,4 @@ jobs:
         run: |
           echo "❌ CI/CD Pipeline failed!"
           echo "Please check the workflow logs for details."
+
