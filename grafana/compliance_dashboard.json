@@ -1,0 +1,239 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "📋 Compliance & Regulatory Monitor",
+    "tags": ["compliance", "soc2", "gdpr", "hipaa", "pci-dss"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "5m",
+    "time": { "from": "now-7d", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🏆 Overall Compliance Score",
+        "type": "gauge",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(avg(compliance_score), 1) as overall_score FROM siem.compliance_metrics WHERE framework IN ('SOC2', 'GDPR', 'HIPAA', 'PCI_DSS') AND event_time >= now() - INTERVAL 7 DAY",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "🔒 SOC2 Compliance",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(avg(compliance_score), 1) as soc2_score FROM siem.compliance_metrics WHERE framework = 'SOC2' AND event_time >= now() - INTERVAL 7 DAY",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 8, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "🇪🇺 GDPR Compliance",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(avg(compliance_score), 1) as gdpr_score FROM siem.compliance_metrics WHERE framework = 'GDPR' AND event_time >= now() - INTERVAL 7 DAY",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 14, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "🏥 HIPAA Compliance",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(avg(compliance_score), 1) as hipaa_score FROM siem.compliance_metrics WHERE framework = 'HIPAA' AND event_time >= now() - INTERVAL 7 DAY",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 8, "y": 4 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "💳 PCI DSS Compliance",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(avg(compliance_score), 1) as pci_score FROM siem.compliance_metrics WHERE framework = 'PCI_DSS' AND event_time >= now() - INTERVAL 7 DAY",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 14, "y": 4 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 70 },
+                { "color": "green", "value": 90 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "📊 Compliance Trends (7 Days)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfDay(event_time) as time, avgIf(compliance_score, framework = 'SOC2') as 'SOC2', avgIf(compliance_score, framework = 'GDPR') as 'GDPR', avgIf(compliance_score, framework = 'HIPAA') as 'HIPAA', avgIf(compliance_score, framework = 'PCI_DSS') as 'PCI DSS' FROM siem.compliance_metrics WHERE event_time >= now() - INTERVAL 7 DAY GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
+      },
+      {
+        "id": 7,
+        "title": "🚨 Compliance Violations",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT event_time as 'Time', framework as 'Framework', control_id as 'Control ID', violation_type as 'Violation Type', severity as 'Severity', description as 'Description' FROM siem.compliance_violations WHERE event_time >= now() - INTERVAL 7 DAY ORDER BY event_time DESC LIMIT 20",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+      },
+      {
+        "id": 8,
+        "title": "📋 Control Coverage Status",
+        "type": "piechart",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT framework, count() as controls FROM siem.compliance_controls WHERE status = 'IMPLEMENTED' GROUP BY framework ORDER BY controls DESC",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+      },
+      {
+        "id": 9,
+        "title": "🔍 Data Protection Metrics",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT 'Data Encryption' as metric, round(avg(encryption_coverage), 1) as 'Coverage %', round(avg(data_breach_risk), 1) as 'Risk Score' FROM siem.data_protection_metrics WHERE event_time >= now() - INTERVAL 7 DAY UNION ALL SELECT 'Access Controls' as metric, round(avg(access_control_effectiveness), 1) as 'Coverage %', round(avg(unauthorized_access_risk), 1) as 'Risk Score' FROM siem.data_protection_metrics WHERE event_time >= now() - INTERVAL 7 DAY UNION ALL SELECT 'Audit Logging' as metric, round(avg(audit_log_coverage), 1) as 'Coverage %', round(avg(audit_gap_risk), 1) as 'Risk Score' FROM siem.data_protection_metrics WHERE event_time >= now() - INTERVAL 7 DAY",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 24 }
+      },
+      {
+        "id": 10,
+        "title": "📈 Risk Assessment Trends",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfDay(event_time) as time, avg(data_breach_risk) as 'Data Breach Risk', avg(unauthorized_access_risk) as 'Access Risk', avg(audit_gap_risk) as 'Audit Risk' FROM siem.data_protection_metrics WHERE event_time >= now() - INTERVAL 7 DAY GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 }
+      }
+    ]
+  }
+}

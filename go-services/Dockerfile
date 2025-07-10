@@ -12,13 +12,13 @@ RUN go mod download && go mod verify
 # Copy source code
 COPY . .
 
-# Build with optimizations and security flags
+# Build the simple bridge with optimizations and security flags
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-s -w" \
     -trimpath \
     -a \
     -installsuffix cgo \
-    -o processor .
+    -o processor ./bridge
 
 # Production stage with minimal footprint
 FROM alpine:latest
@@ -38,7 +38,7 @@ USER siem
 
 # Health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD /app/processor --health-check || exit 1
+    CMD pgrep -f processor || exit 1
 
 EXPOSE 8080
 

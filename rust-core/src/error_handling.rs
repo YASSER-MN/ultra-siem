@@ -1,233 +1,194 @@
-use std::error::Error;
-use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
+//! # Error Handling Module
+//! 
+//! This module provides comprehensive error handling for the Ultra SIEM system.
+//! It defines custom error types, result aliases, and utility functions for
+//! consistent error management across all components.
+//! 
+//! ## Features
+//! - Custom `SIEMError` enum with all possible error types
+//! - Type alias `SIEMResult<T>` for consistent error handling
+//! - Time utility functions with error handling
+//! - Automatic conversion from common error types
+//! 
+//! ## Usage
+//! ```rust
+//! use siem_rust_core::error_handling::{SIEMResult, SIEMError};
+//! 
+//! fn process_data() -> SIEMResult<String> {
+//!     // Your processing logic here
+//!     Ok("processed data".to_string())
+//! }
+//! ```
 
-/// Custom error types for Ultra SIEM
-#[derive(Debug)]
+use std::time::SystemTimeError;
+use serde_json;
+use std::io;
+use async_nats::SubscribeError;
+use async_nats::PublishError;
+
+/// Comprehensive error types for Ultra SIEM operations
+/// 
+/// This enum covers all possible error scenarios that can occur
+/// during SIEM operations, including system errors, network issues,
+/// configuration problems, and application-specific errors.
+#[derive(Debug, thiserror::Error)]
 pub enum SIEMError {
-    TimeError(String),
-    NetworkError(String),
-    DatabaseError(String),
-    SerializationError(String),
-    ConfigurationError(String),
-    ResourceError(String),
-    SecurityError(String),
-    ValidationError(String),
-    InternalError(String),
+    /// System time related errors (e.g., clock issues)
+    #[error("System time error: {0}")]
+    SystemTime(#[from] SystemTimeError),
+    
+    /// JSON serialization/deserialization errors
+    #[error("JSON serialization error: {0}")]
+    Json(#[from] serde_json::Error),
+    
+    /// Input/Output errors (file operations, network I/O)
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
+    
+    /// NATS messaging subscription errors
+    #[error("NATS subscription error: {0}")]
+    NatsSubscribe(#[from] SubscribeError),
+    
+    /// NATS messaging publish errors
+    #[error("NATS publish error: {0}")]
+    NatsPublish(#[from] PublishError),
+    
+    /// Configuration-related errors (invalid settings, missing config)
+    #[error("Configuration error: {0}")]
+    Config(String),
+    
+    /// Database operation errors (ClickHouse, etc.)
+    #[error("Database error: {0}")]
+    Database(String),
+    
+    /// Authentication and authorization errors
+    #[error("Authentication error: {0}")]
+    Auth(String),
+    
+    /// Data validation errors (invalid input, format issues)
+    #[error("Validation error: {0}")]
+    Validation(String),
+    
+    /// Threat detection specific errors
+    #[error("Threat detection error: {0}")]
+    ThreatDetection(String),
+    
+    /// Event correlation errors
+    #[error("Correlation error: {0}")]
+    Correlation(String),
+    
+    /// Performance-related errors (timeouts, resource limits)
+    #[error("Performance error: {0}")]
+    Performance(String),
+    
+    /// Unknown or unclassified errors
+    #[error("Unknown error: {0}")]
+    Unknown(String),
+    
+    /// Generic error wrapper for other error types
+    #[error("Other error: {0}")]
+    Other(String),
 }
 
-impl fmt::Display for SIEMError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SIEMError::TimeError(msg) => write!(f, "Time error: {}", msg),
-            SIEMError::NetworkError(msg) => write!(f, "Network error: {}", msg),
-            SIEMError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
-            SIEMError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
-            SIEMError::ConfigurationError(msg) => write!(f, "Configuration error: {}", msg),
-            SIEMError::ResourceError(msg) => write!(f, "Resource error: {}", msg),
-            SIEMError::SecurityError(msg) => write!(f, "Security error: {}", msg),
-            SIEMError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
-            SIEMError::InternalError(msg) => write!(f, "Internal error: {}", msg),
-        }
-    }
-}
-
-impl Error for SIEMError {}
-
-impl From<std::time::SystemTimeError> for SIEMError {
-    fn from(err: std::time::SystemTimeError) -> Self {
-        SIEMError::TimeError(format!("System time error: {}", err))
-    }
-}
-
-impl From<serde_json::Error> for SIEMError {
-    fn from(err: serde_json::Error) -> Self {
-        SIEMError::SerializationError(format!("JSON serialization error: {}", err))
-    }
-}
-
-impl From<std::io::Error> for SIEMError {
-    fn from(err: std::io::Error) -> Self {
-        SIEMError::ResourceError(format!("I/O error: {}", err))
-    }
-}
-
-/// Safe time utilities
-pub mod time {
-    use super::*;
-
-    /// Get current timestamp safely
-    pub fn current_timestamp() -> Result<u64, SIEMError> {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .map_err(|e| SIEMError::TimeError(format!("Failed to get current time: {}", e)))
-    }
-
-    /// Get current timestamp in nanoseconds
-    pub fn current_timestamp_nanos() -> Result<u64, SIEMError> {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .map_err(|e| SIEMError::TimeError(format!("Failed to get current time: {}", e)))
-    }
-
-    /// Get elapsed time safely
-    pub fn elapsed_since(start: SystemTime) -> Result<u64, SIEMError> {
-        start
-            .elapsed()
-            .map(|d| d.as_secs())
-            .map_err(|e| SIEMError::TimeError(format!("Failed to calculate elapsed time: {}", e)))
-    }
-}
-
-/// Safe serialization utilities
-pub mod serialization {
-    use super::*;
-
-    /// Safe JSON serialization
-    pub fn to_json<T: serde::Serialize>(value: &T) -> Result<String, SIEMError> {
-        serde_json::to_string(value).map_err(|e| SIEMError::SerializationError(format!("JSON serialization failed: {}", e)))
-    }
-
-    /// Safe JSON deserialization
-    pub fn from_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, SIEMError> {
-        serde_json::from_str(json).map_err(|e| SIEMError::SerializationError(format!("JSON deserialization failed: {}", e)))
-    }
-}
-
-/// Safe resource management
-pub mod resources {
-    use super::*;
-    use std::sync::{Arc, RwLock};
-
-    /// Safe lock acquisition with timeout
-    pub fn try_lock<T>(lock: &Arc<RwLock<T>>, timeout_ms: u64) -> Result<std::sync::RwLockReadGuard<T>, SIEMError> {
-        let start = SystemTime::now();
-        let timeout_duration = std::time::Duration::from_millis(timeout_ms);
-        
-        loop {
-            match lock.try_read() {
-                Ok(guard) => return Ok(guard),
-                Err(_) => {
-                    if start.elapsed().unwrap_or_default() > timeout_duration {
-                        return Err(SIEMError::ResourceError("Lock acquisition timeout".to_string()));
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-            }
-        }
-    }
-
-    /// Safe write lock acquisition with timeout
-    pub fn try_write_lock<T>(lock: &Arc<RwLock<T>>, timeout_ms: u64) -> Result<std::sync::RwLockWriteGuard<T>, SIEMError> {
-        let start = SystemTime::now();
-        let timeout_duration = std::time::Duration::from_millis(timeout_ms);
-        
-        loop {
-            match lock.try_write() {
-                Ok(guard) => return Ok(guard),
-                Err(_) => {
-                    if start.elapsed().unwrap_or_default() > timeout_duration {
-                        return Err(SIEMError::ResourceError("Write lock acquisition timeout".to_string()));
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-            }
-        }
-    }
-}
-
-/// Validation utilities
-pub mod validation {
-    use super::*;
-
-    /// Validate IP address format
-    pub fn validate_ip(ip: &str) -> Result<(), SIEMError> {
-        if ip.parse::<std::net::IpAddr>().is_ok() {
-            Ok(())
-        } else {
-            Err(SIEMError::ValidationError(format!("Invalid IP address: {}", ip)))
-        }
-    }
-
-    /// Validate port number
-    pub fn validate_port(port: u16) -> Result<(), SIEMError> {
-        if port > 0 && port <= 65535 {
-            Ok(())
-        } else {
-            Err(SIEMError::ValidationError(format!("Invalid port number: {}", port)))
-        }
-    }
-
-    /// Validate confidence score
-    pub fn validate_confidence(confidence: f32) -> Result<(), SIEMError> {
-        if confidence >= 0.0 && confidence <= 1.0 {
-            Ok(())
-        } else {
-            Err(SIEMError::ValidationError(format!("Invalid confidence score: {}", confidence)))
-        }
-    }
-}
-
-/// Result type alias for SIEM operations
+/// Type alias for SIEM operations that can fail
+/// 
+/// This provides a consistent way to handle errors across all
+/// SIEM components. All public functions should use this type
+/// for their return values.
 pub type SIEMResult<T> = Result<T, SIEMError>;
 
-/// Macro for safe unwrapping with context
-#[macro_export]
-macro_rules! safe_unwrap {
-    ($expr:expr, $context:expr) => {
-        match $expr {
-            Ok(value) => value,
-            Err(e) => {
-                log::error!("{}: {:?}", $context, e);
-                return Err(SIEMError::InternalError(format!("{}: {:?}", $context, e)));
-            }
-        }
-    };
+impl From<String> for SIEMError {
+    /// Convert a String to SIEMError::Other
+    fn from(e: String) -> Self {
+        SIEMError::Other(e)
+    }
 }
 
-/// Macro for safe unwrapping with default value
-#[macro_export]
-macro_rules! safe_unwrap_or {
-    ($expr:expr, $default:expr, $context:expr) => {
-        match $expr {
-            Ok(value) => value,
-            Err(e) => {
-                log::warn!("{}: {:?}, using default", $context, e);
-                $default
-            }
-        }
-    };
+impl From<reqwest::Error> for SIEMError {
+    /// Convert a reqwest HTTP error to SIEMError::Other
+    fn from(e: reqwest::Error) -> Self {
+        SIEMError::Other(e.to_string())
+    }
 }
+
+/// Time utility functions with error handling
+pub mod time {
+    use super::*;
+    
+    /// Get current Unix timestamp in seconds
+    /// 
+    /// Returns the number of seconds since Unix epoch (January 1, 1970).
+    /// This function handles system time errors gracefully.
+    /// 
+    /// # Returns
+    /// - `SIEMResult<u64>`: Current timestamp in seconds, or error
+    /// 
+    /// # Examples
+    /// ```rust
+    /// use siem_rust_core::error_handling::time;
+    /// 
+    /// match time::current_timestamp() {
+    ///     Ok(timestamp) => println!("Current time: {}", timestamp),
+    ///     Err(e) => eprintln!("Time error: {}", e),
+    /// }
+    /// ```
+    pub fn current_timestamp() -> SIEMResult<u64> {
+        Ok(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(SIEMError::SystemTime)?
+            .as_secs())
+    }
+    
+    /// Get current Unix timestamp in milliseconds
+    /// 
+    /// Returns the number of milliseconds since Unix epoch (January 1, 1970).
+    /// This provides higher precision than `current_timestamp()`.
+    /// 
+    /// # Returns
+    /// - `SIEMResult<u128>`: Current timestamp in milliseconds, or error
+    /// 
+    /// # Examples
+    /// ```rust
+    /// use siem_rust_core::error_handling::time;
+    /// 
+    /// match time::current_timestamp_millis() {
+    ///     Ok(timestamp) => println!("Current time (ms): {}", timestamp),
+    ///     Err(e) => eprintln!("Time error: {}", e),
+    /// }
+    /// ```
+    pub fn current_timestamp_millis() -> SIEMResult<u128> {
+        Ok(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(SIEMError::SystemTime)?
+            .as_millis())
+    }
+} 
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_current_timestamp() {
-        let timestamp = time::current_timestamp().unwrap();
-        assert!(timestamp > 0);
+    fn test_error_from_string() {
+        let err: SIEMError = String::from("custom error").into();
+        match err {
+            SIEMError::Other(msg) => assert_eq!(msg, "custom error"),
+            _ => panic!("Expected SIEMError::Other"),
+        }
     }
 
     #[test]
-    fn test_validation() {
-        assert!(validation::validate_ip("192.168.1.1").is_ok());
-        assert!(validation::validate_ip("invalid").is_err());
-        
-        assert!(validation::validate_port(8080).is_ok());
-        assert!(validation::validate_port(0).is_err());
-        
-        assert!(validation::validate_confidence(0.5).is_ok());
-        assert!(validation::validate_confidence(1.5).is_err());
+    fn test_time_utilities() {
+        let ts = time::current_timestamp();
+        assert!(ts.is_ok());
+        let ts_ms = time::current_timestamp_millis();
+        assert!(ts_ms.is_ok());
     }
 
     #[test]
-    fn test_serialization() {
-        let data = serde_json::json!({"test": "value"});
-        let json = serialization::to_json(&data).unwrap();
-        let parsed: serde_json::Value = serialization::from_json(&json).unwrap();
-        assert_eq!(data, parsed);
+    fn test_error_display() {
+        let err = SIEMError::Config("bad config".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("bad config"));
     }
 } 

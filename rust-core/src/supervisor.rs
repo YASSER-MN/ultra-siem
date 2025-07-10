@@ -537,7 +537,7 @@ impl UltraSupervisor {
             let mut services = self.services.write().await;
             
             for (_, service_process) in services.iter_mut() {
-                if let Some(pid) = service_process.status.pid {
+                if let Some(_pid) = service_process.status.pid {
                     // Get process resource usage (simplified for now)
                     // In production, use proper system calls to get real metrics
                     service_process.status.memory_usage_mb = 0.0; // TODO: Get real memory usage

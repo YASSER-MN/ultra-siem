@@ -1,3 +1,19 @@
+// Ultra SIEM Optimized Analytics Engine
+//
+// This module provides SIMD-optimized analytics for Ultra SIEM.
+// It includes:
+// - SIMD vectorized query execution
+// - Parallel query processing
+// - Memory-mapped file analytics
+// - Performance statistics and metrics
+// - Thread-safe memory management
+//
+// Usage:
+//   See main.zig for integration and entry point.
+//
+// This engine is designed for high-throughput, low-latency analytics
+// on large security event datasets.
+
 const std = @import("std");
 const mem = std.mem;
 const time = std.time;
@@ -456,4 +472,219 @@ test "Parallel execution" {
     defer allocator.free(results);
 
     try std.testing.expect(results.len == queries.len);
+} 
+
+test "SIMD vector operations" {
+    const allocator = std.testing.allocator;
+    
+    // Test SIMD vector creation
+    var vec = SIMDVector.init(allocator);
+    defer vec.deinit();
+    
+    // Test adding values
+    try vec.add(10.0);
+    try vec.add(20.0);
+    try vec.add(30.0);
+    
+    // Test vector operations
+    const sum = vec.sum();
+    const mean = vec.mean();
+    const std_dev = vec.standard_deviation();
+    
+    // Verify results
+    try std.testing.expectApproxEqAbs(sum, 60.0, 0.001);
+    try std.testing.expectApproxEqAbs(mean, 20.0, 0.001);
+    try std.testing.expectApproxEqAbs(std_dev, 8.165, 0.001);
+}
+
+test "Query processing" {
+    const allocator = std.testing.allocator;
+    
+    // Test query execution
+    var query_engine = QueryEngine.init(allocator);
+    defer query_engine.deinit();
+    
+    // Test simple query
+    const query = "SELECT COUNT(*) FROM events WHERE severity > 5";
+    const result = try query_engine.execute(query);
+    
+    // Verify query result structure
+    try std.testing.expect(result != null);
+    try std.testing.expect(result.?.rows.len >= 0);
+}
+
+test "Performance metrics" {
+    const allocator = std.testing.allocator;
+    
+    // Test performance tracking
+    var metrics = PerformanceMetrics.init(allocator);
+    defer metrics.deinit();
+    
+    // Simulate some operations
+    metrics.start_timer("test_operation");
+    std.time.sleep(1 * std.time.ns_per_ms); // 1ms sleep
+    metrics.end_timer("test_operation");
+    
+    // Verify metrics
+    const duration = metrics.get_duration("test_operation");
+    try std.testing.expect(duration > 0);
+    try std.testing.expect(duration >= 1_000_000); // At least 1ms in nanoseconds
+}
+
+test "Memory management" {
+    const allocator = std.testing.allocator;
+    
+    // Test memory allocation and deallocation
+    var large_vector = SIMDVector.init(allocator);
+    defer large_vector.deinit();
+    
+    // Allocate large amount of data
+    var i: usize = 0;
+    while (i < 10000) : (i += 1) {
+        try large_vector.add(@floatFromInt(i));
+    }
+    
+    // Verify memory usage
+    try std.testing.expect(large_vector.len() == 10000);
+    
+    // Test memory cleanup
+    large_vector.deinit();
+    // Should not crash or leak memory
+}
+
+test "Concurrent access" {
+    const allocator = std.testing.allocator;
+    
+    // Test thread-safe operations
+    var shared_vector = SIMDVector.init(allocator);
+    defer shared_vector.deinit();
+    
+    // Create multiple threads
+    const thread_count = 4;
+    const operations_per_thread = 1000;
+    
+    var threads: [thread_count]std.Thread = undefined;
+    
+    // Start threads
+    for (threads) |*thread, i| {
+        thread.* = try std.Thread.spawn(.{}, struct {
+            fn worker(vector: *SIMDVector, thread_id: usize) !void {
+                var j: usize = 0;
+                while (j < operations_per_thread) : (j += 1) {
+                    try vector.add(@floatFromInt(thread_id * 1000 + j));
+                }
+            }
+        }.worker, .{ &shared_vector, i });
+    }
+    
+    // Wait for all threads
+    for (threads) |thread| {
+        thread.join();
+    }
+    
+    // Verify total operations
+    try std.testing.expect(shared_vector.len() == thread_count * operations_per_thread);
+}
+
+test "Error handling" {
+    const allocator = std.testing.allocator;
+    
+    // Test invalid operations
+    var query_engine = QueryEngine.init(allocator);
+    defer query_engine.deinit();
+    
+    // Test invalid query
+    const invalid_query = "INVALID SQL QUERY";
+    const result = query_engine.execute(invalid_query);
+    
+    // Should return error
+    try std.testing.expectError(QueryError.InvalidSyntax, result);
+}
+
+test "Benchmark operations" {
+    const allocator = std.testing.allocator;
+    
+    // Test benchmarking functionality
+    var benchmark = Benchmark.init(allocator);
+    defer benchmark.deinit();
+    
+    // Run benchmark
+    const iterations = 1000;
+    const result = try benchmark.run("vector_operations", iterations, struct {
+        fn benchmark_fn() void {
+            var vec = SIMDVector.init(std.testing.allocator);
+            defer vec.deinit();
+            
+            var i: usize = 0;
+            while (i < 100) : (i += 1) {
+                vec.add(@floatFromInt(i)) catch unreachable;
+            }
+            
+            _ = vec.sum();
+            _ = vec.mean();
+        }
+    }.benchmark_fn);
+    
+    // Verify benchmark results
+    try std.testing.expect(result.iteration_count == iterations);
+    try std.testing.expect(result.total_time > 0);
+    try std.testing.expect(result.average_time > 0);
+}
+
+test "Data serialization" {
+    const allocator = std.testing.allocator;
+    
+    // Test data serialization/deserialization
+    var original_vector = SIMDVector.init(allocator);
+    defer original_vector.deinit();
+    
+    // Add test data
+    try original_vector.add(1.0);
+    try original_vector.add(2.0);
+    try original_vector.add(3.0);
+    
+    // Serialize
+    const serialized = try original_vector.serialize();
+    defer allocator.free(serialized);
+    
+    // Deserialize
+    var new_vector = try SIMDVector.deserialize(allocator, serialized);
+    defer new_vector.deinit();
+    
+    // Verify data integrity
+    try std.testing.expect(original_vector.len() == new_vector.len());
+    try std.testing.expectApproxEqAbs(original_vector.sum(), new_vector.sum(), 0.001);
+}
+
+test "Integration test" {
+    const allocator = std.testing.allocator;
+    
+    // Test complete workflow
+    var analytics = OptimizedAnalytics.init(allocator);
+    defer analytics.deinit();
+    
+    // Add sample data
+    try analytics.add_event(.{
+        .timestamp = 1234567890,
+        .source_ip = "192.168.1.1",
+        .event_type = "threat_detected",
+        .severity = 8,
+        .confidence = 0.95,
+    });
+    
+    try analytics.add_event(.{
+        .timestamp = 1234567891,
+        .source_ip = "192.168.1.2",
+        .event_type = "threat_detected",
+        .severity = 6,
+        .confidence = 0.87,
+    });
+    
+    // Run analysis
+    const analysis = try analytics.analyze();
+    
+    // Verify analysis results
+    try std.testing.expect(analysis.total_events == 2);
+    try std.testing.expect(analysis.average_severity == 7.0);
+    try std.testing.expect(analysis.average_confidence > 0.9);
 } 

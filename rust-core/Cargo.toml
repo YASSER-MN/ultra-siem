@@ -3,45 +3,58 @@ name = "siem-rust-core"
 version = "0.1.0"
 edition = "2021"
 
-
-
 [dependencies]
-tokio = { version = "1.45", features = ["full", "rt-multi-thread"] }
+tokio = { version = "1.0", features = ["full"] }
 async-nats = "0.33"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.10"
+uuid = { version = "1.0", features = ["v4"] }
+futures-util = "0.3"
+thiserror = "1.0"
 maxminddb = "0.24"
 reqwest = { version = "0.11", features = ["json"] }
-windows = { version = "0.52", features = [
-    "Win32_System_Diagnostics_Etw",
-    "Win32_Foundation",
-    "Win32_System_Threading",
-] }
-# Zero-latency optimizations
-crossbeam = "0.8"
+tokio-retry = "0.3"
+rayon = "1.8"
+regex = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+base64ct = "1.7"
+bytes = "1.5"
+memchr = "2.6"
+rand = "0.8"
+crossbeam-channel = "0.5"
 dashmap = "5.5"
 parking_lot = "0.12"
-rayon = "1.8"
-memmap2 = "0.9"
-# High-performance networking
-quinn = "0.10"
-# Lock-free structures
-crossbeam-channel = "0.5"
-crossbeam-queue = "0.3"
-# Performance profiling
-# Memory optimization - using standard allocator for Windows compatibility
-futures = "0.3"
-rand = "0.8"
+ndarray = "0.15"
+crossbeam = "0.8"
+bcrypt = "0.15"
+jsonwebtoken = "9.2"
+
+[target.'cfg(not(windows))'.dependencies]
+cuda = { version = "0.3", optional = true }
+nvml = { version = "0.0.2", optional = true }
+gpu-allocator = { version = "0.22", optional = true }
+ash = { version = "0.37", optional = true }
+vulkano = { version = "0.33", optional = true }
+
+[features]
+default = ["cpu-only"]
+cpu-only = []
+gpu-acceleration = ["cuda", "nvml"]
+vulkan-support = ["vulkano", "ash"]
+ml-inference = []
+dashboard = []
+analytics = []
+full-acceleration = ["gpu-acceleration", "vulkan-support", "ml-inference"]
+full-features = ["gpu-acceleration", "vulkan-support", "ml-inference", "dashboard", "analytics"]
 
 [profile.release]
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
-opt-level = 3
-# Zero-latency optimizations
-# Memory optimization
-overflow-checks = false
+strip = true
 
 [profile.dev]
 opt-level = 1 

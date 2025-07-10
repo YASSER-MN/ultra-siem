@@ -1,0 +1,131 @@
+{
+  "dashboards": [
+    {
+      "title": "🏢 Executive Security Overview",
+      "tags": ["executive", "kpi", "security"],
+      "style": "dark",
+      "refresh": "5m",
+      "time": { "from": "now-24h", "to": "now" },
+      "panels": [
+        {
+          "title": "🛡️ Security Score",
+          "type": "gauge",
+          "targets": [
+            {
+              "rawSql": "SELECT round(100 - (countIf(severity IN ('HIGH', 'CRITICAL')) * 100.0 / count()), 1) as security_score FROM siem.threats WHERE event_time >= now() - INTERVAL 24 HOUR"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "🔍 SOC Operations Center",
+      "tags": ["soc", "operations", "real-time"],
+      "style": "dark",
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        {
+          "title": "🚨 Live Threat Feed",
+          "type": "logs",
+          "targets": [
+            {
+              "rawSql": "SELECT event_time, source_ip, threat_type, severity, message FROM siem.threats WHERE event_time >= now() - INTERVAL 30 MINUTE ORDER BY event_time DESC LIMIT 50"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "🌐 Network Security Analysis",
+      "tags": ["network", "geo", "ip-analysis"],
+      "style": "dark",
+      "refresh": "2m",
+      "time": { "from": "now-12h", "to": "now" },
+      "panels": [
+        {
+          "title": "🗺️ Global Attack Heat Map",
+          "type": "table",
+          "targets": [
+            {
+              "rawSql": "SELECT geo_country as 'Country', count() as 'Total Attacks', countIf(severity = 'CRITICAL') as 'Critical', countIf(severity = 'HIGH') as 'High', round(avg(confidence_score), 2) as 'Avg Confidence' FROM siem.threats WHERE event_time >= now() - INTERVAL 12 HOUR AND geo_country != 'Unknown' GROUP BY geo_country ORDER BY count() DESC LIMIT 15"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "👥 User Activity & Authentication Monitor",
+      "tags": ["user-activity", "authentication", "privilege-escalation"],
+      "style": "dark",
+      "refresh": "30s",
+      "time": { "from": "now-24h", "to": "now" },
+      "panels": [
+        {
+          "title": "🚨 Failed Login Attempts",
+          "type": "stat",
+          "targets": [
+            {
+              "rawSql": "SELECT count() as failed_logins FROM siem.auth_events WHERE event_type = 'LOGIN_FAILED' AND event_time >= now() - INTERVAL 1 HOUR"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "📋 Compliance & Regulatory Monitor",
+      "tags": ["compliance", "soc2", "gdpr", "hipaa", "pci-dss"],
+      "style": "dark",
+      "refresh": "5m",
+      "time": { "from": "now-7d", "to": "now" },
+      "panels": [
+        {
+          "title": "🏆 Overall Compliance Score",
+          "type": "gauge",
+          "targets": [
+            {
+              "rawSql": "SELECT round(avg(compliance_score), 1) as overall_score FROM siem.compliance_metrics WHERE framework IN ('SOC2', 'GDPR', 'HIPAA', 'PCI_DSS') AND event_time >= now() - INTERVAL 7 DAY"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "🧠 Behavioral Analytics & Risk Intelligence",
+      "tags": ["behavioral", "analytics", "anomaly", "risk-scoring"],
+      "style": "dark",
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "panels": [
+        {
+          "title": "🎯 Overall Risk Score",
+          "type": "gauge",
+          "targets": [
+            {
+              "rawSql": "SELECT round(avg(risk_score), 1) as overall_risk FROM siem.behavioral_metrics WHERE event_time >= now() - INTERVAL 1 HOUR"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "⚡ Ultra SIEM Health Monitor",
+      "tags": ["ultra-siem", "health", "monitoring"],
+      "style": "dark",
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        {
+          "title": "Overall System Health",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "ultra_siem_health_status",
+              "legendFormat": "System Status"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

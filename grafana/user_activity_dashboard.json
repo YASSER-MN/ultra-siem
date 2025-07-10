@@ -1,0 +1,194 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "👥 User Activity & Authentication Monitor",
+    "tags": ["user-activity", "authentication", "privilege-escalation"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": { "from": "now-24h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🚨 Failed Login Attempts",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as failed_logins FROM siem.auth_events WHERE event_type = 'LOGIN_FAILED' AND event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "red" },
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 5 },
+                { "color": "red", "value": 10 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "🔐 Successful Logins",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as successful_logins FROM siem.auth_events WHERE event_type = 'LOGIN_SUCCESS' AND event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "green" }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "⚡ Privilege Escalations",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as privilege_escalations FROM siem.auth_events WHERE event_type = 'PRIVILEGE_ESCALATION' AND event_time >= now() - INTERVAL 24 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "orange" },
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "red", "value": 1 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "👤 Active Sessions",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT uniq(user_id) as active_sessions FROM siem.auth_events WHERE event_type = 'SESSION_ACTIVE' AND event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "blue" }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "📊 Authentication Events Timeline",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfMinute(event_time) as time, countIf(event_type = 'LOGIN_SUCCESS') as 'Successful', countIf(event_type = 'LOGIN_FAILED') as 'Failed', countIf(event_type = 'LOGOUT') as 'Logout' FROM siem.auth_events WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
+      },
+      {
+        "id": 6,
+        "title": "🎯 Top Failed Login Sources",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT source_ip as 'Source IP', user_id as 'User', count() as 'Failed Attempts', max(event_time) as 'Last Attempt' FROM siem.auth_events WHERE event_type = 'LOGIN_FAILED' AND event_time >= now() - INTERVAL 24 HOUR GROUP BY source_ip, user_id ORDER BY count() DESC LIMIT 10",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
+      },
+      {
+        "id": 7,
+        "title": "🔍 Privilege Change Events",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT event_time as 'Time', user_id as 'User', source_ip as 'Source IP', old_role as 'Old Role', new_role as 'New Role', reason as 'Reason' FROM siem.auth_events WHERE event_type IN ('PRIVILEGE_ESCALATION', 'ROLE_CHANGE') AND event_time >= now() - INTERVAL 24 HOUR ORDER BY event_time DESC LIMIT 20",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 }
+      },
+      {
+        "id": 8,
+        "title": "📈 User Activity Heatmap",
+        "type": "heatmap",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfHour(event_time) as time, user_id, count() as activity_count FROM siem.auth_events WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY time, user_id ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 }
+      },
+      {
+        "id": 9,
+        "title": "🚨 Suspicious Activity Alerts",
+        "type": "logs",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT event_time, user_id, source_ip, event_type, message FROM siem.auth_events WHERE risk_score > 7 AND event_time >= now() - INTERVAL 6 HOUR ORDER BY event_time DESC LIMIT 50",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 }
+      }
+    ]
+  }
+}

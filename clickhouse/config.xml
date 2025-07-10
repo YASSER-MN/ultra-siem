@@ -1,1 +1,79 @@
- 
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Basic server configuration -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+
+    <!-- Network interfaces -->
+    <listen_host>::</listen_host>
+    <listen_host>0.0.0.0</listen_host>
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+
+    <!-- Health check endpoints -->
+    <http_handlers>
+        <rule>
+            <url>/ping</url>
+            <handler>
+                <type>predefined_query_handler</type>
+                <query>SELECT 1</query>
+            </handler>
+        </rule>
+        <rule>
+            <url>/health</url>
+            <handler>
+                <type>predefined_query_handler</type>
+                <query>SELECT 1</query>
+            </handler>
+        </rule>
+    </http_handlers>
+
+    <!-- Essential paths - REQUIRED -->
+    <path>/var/lib/clickhouse/</path>
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+
+    <!-- User configuration - REQUIRED -->
+    <users_config>users.xml</users_config>
+    <default_profile>default</default_profile>
+    <default_database>default</default_database>
+
+    <!-- User directories - REQUIRED -->
+    <user_directories>
+        <users_xml>
+            <path>/etc/clickhouse-server/users.xml</path>
+        </users_xml>
+    </user_directories>
+
+    <!-- Timezone -->
+    <timezone>UTC</timezone>
+
+    <!-- Basic performance settings -->
+    <mark_cache_size>5368709120</mark_cache_size>
+    <uncompressed_cache_size>8589934592</uncompressed_cache_size>
+    <max_table_size_to_drop>0</max_table_size_to_drop>
+    <max_open_files>262144</max_open_files>
+
+    <!-- Query log for SIEM functionality -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+
+    <!-- Part log for monitoring -->
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </part_log>
+
+</clickhouse> 

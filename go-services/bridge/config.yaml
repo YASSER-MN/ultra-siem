@@ -1,0 +1,238 @@
+# Ultra SIEM Bridge Configuration
+# Enterprise-grade configuration with zero-trust compliance
+
+# NATS Configuration
+nats:
+  url: "nats://nats:4222"
+  enable_tls: false
+  tls_cert_file: ""
+  tls_key_file: ""
+  tls_ca_cert_file: ""
+  connection_timeout: "10s"
+  max_reconnects: -1
+  reconnect_wait: "1s"
+  ping_interval: "30s"
+  max_pings_outstanding: 5
+
+# ClickHouse Configuration
+clickhouse:
+  url: "clickhouse:9000"
+  database: "ultra_siem"
+  username: "admin"
+  password: "admin"
+  enable_tls: false
+  tls_ca_cert_file: ""
+  max_connections: 10
+  max_idle_connections: 5
+  connection_lifetime: "1h"
+  query_timeout: "60s"
+  compression: "lz4"
+
+# Processing Configuration
+processing:
+  batch_size: 100
+  batch_timeout: "5s"
+  max_retries: 3
+  retry_delay: "1s"
+  enable_parallel_processing: true
+  max_workers: 10
+  worker_timeout: "30s"
+
+# Enrichment Configuration
+enrichment:
+  enable_geoip: true
+  enable_threat_intelligence: true
+  enable_user_enrichment: true
+  cache_size: 10000
+  cache_ttl: "1h"
+  geoip_provider: "maxmind" # maxmind, ipapi, mock
+  threat_intelligence_sources:
+    - "abuseipdb"
+    - "virustotal"
+    - "alienvault"
+
+# Security Configuration
+security:
+  enable_encryption: true
+  encryption_algorithm: "AES-256-GCM"
+  enable_audit_logging: true
+  audit_log_level: "info"
+  enable_input_validation: true
+  enable_output_validation: true
+  max_message_size: "10MB"
+  rate_limiting:
+    enabled: true
+    requests_per_second: 1000
+    burst_size: 100
+
+# Compliance Configuration
+compliance:
+  enable_gdpr_compliance: true
+  enable_sox_compliance: true
+  enable_hipaa_compliance: true
+  enable_pci_dss_compliance: true
+  data_retention_days: 90
+  audit_retention_days: 365
+  enable_data_classification: true
+  enable_privacy_protection: true
+
+# Monitoring Configuration
+monitoring:
+  enable_metrics: true
+  metrics_port: 8080
+  enable_health_checks: true
+  health_check_interval: "30s"
+  enable_performance_monitoring: true
+  performance_sampling_rate: 0.1
+  enable_error_tracking: true
+  error_reporting:
+    enabled: true
+    level: "error"
+    include_stack_traces: true
+
+# Logging Configuration
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  enable_structured_logging: true
+  enable_correlation_ids: true
+  enable_request_logging: true
+  log_rotation:
+    enabled: true
+    max_size: "100MB"
+    max_age: "7d"
+    max_backups: 10
+
+# Performance Configuration
+performance:
+  enable_connection_pooling: true
+  enable_query_caching: true
+  cache_size: 1000
+  cache_ttl: "5m"
+  enable_compression: true
+  compression_level: 6
+  enable_batch_processing: true
+  batch_optimization:
+    enabled: true
+    min_batch_size: 10
+    max_batch_size: 1000
+    batch_timeout: "5s"
+
+# Error Handling Configuration
+error_handling:
+  enable_circuit_breaker: true
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_timeout: "30s"
+    half_open_requests: 3
+  enable_retry_logic: true
+  retry_config:
+    max_retries: 3
+    initial_delay: "1s"
+    max_delay: "30s"
+    backoff_multiplier: 2
+  enable_dead_letter_queue: true
+  dead_letter_queue:
+    enabled: true
+    topic: "ultra_siem.dlq"
+    max_retries: 3
+
+# Event Processing Configuration
+event_processing:
+  enable_event_validation: true
+  enable_event_normalization: true
+  enable_event_enrichment: true
+  enable_event_correlation: true
+  correlation_window: "5m"
+  enable_duplicate_detection: true
+  duplicate_window: "1m"
+  enable_event_prioritization: true
+  priority_levels:
+    critical: 1
+    high: 2
+    medium: 3
+    low: 4
+    info: 5
+
+# Threat Intelligence Configuration
+threat_intelligence:
+  enable_realtime_lookups: true
+  enable_batch_lookups: true
+  lookup_timeout: "5s"
+  cache_enabled: true
+  cache_ttl: "1h"
+  sources:
+    abuseipdb:
+      enabled: true
+      api_key: ""
+      rate_limit: 1000
+    virustotal:
+      enabled: true
+      api_key: ""
+      rate_limit: 500
+    alienvault:
+      enabled: true
+      api_key: ""
+      rate_limit: 100
+
+# GeoIP Configuration
+geoip:
+  enable_lookups: true
+  provider: "maxmind"
+  database_path: "/usr/share/GeoIP/GeoLite2-City.mmdb"
+  cache_enabled: true
+  cache_size: 10000
+  cache_ttl: "24h"
+  fallback_provider: "ipapi"
+  enable_asn_lookups: true
+  enable_tor_detection: true
+
+# Data Classification Configuration
+data_classification:
+  enable_automatic_classification: true
+  classification_rules:
+    - pattern: "password|secret|key|token"
+      classification: "sensitive"
+      compliance_tags: ["PCI-DSS", "SOX"]
+    - pattern: "credit_card|ssn|social_security"
+      classification: "pii"
+      compliance_tags: ["PCI-DSS", "GDPR"]
+    - pattern: "medical|health|diagnosis"
+      classification: "phi"
+      compliance_tags: ["HIPAA"]
+    - pattern: "internal|confidential"
+      classification: "internal"
+      compliance_tags: ["SOX"]
+
+# Alerting Configuration
+alerting:
+  enable_alerts: true
+  alert_channels:
+    - type: "nats"
+      topic: "ultra_siem.alerts"
+    - type: "webhook"
+      url: ""
+      timeout: "10s"
+  alert_rules:
+    - name: "high_error_rate"
+      condition: "error_rate > 0.05"
+      severity: "warning"
+    - name: "high_latency"
+      condition: "avg_latency > 1000ms"
+      severity: "warning"
+    - name: "connection_failure"
+      condition: "connection_failures > 10"
+      severity: "critical"
+
+# Development Configuration
+development:
+  enable_debug_mode: false
+  enable_profiling: false
+  profiling_port: 6060
+  enable_trace_logging: false
+  enable_mock_data: false
+  mock_data_config:
+    enabled: false
+    event_count: 1000
+    event_interval: "1s"

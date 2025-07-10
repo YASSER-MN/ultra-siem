@@ -1,0 +1,212 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🧠 Behavioral Analytics & Risk Intelligence",
+    "tags": ["behavioral", "analytics", "anomaly", "risk-scoring"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "1m",
+    "time": { "from": "now-24h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "🎯 Overall Risk Score",
+        "type": "gauge",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT round(avg(risk_score), 1) as overall_risk FROM siem.behavioral_metrics WHERE event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 10,
+            "unit": "short",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 3 },
+                { "color": "orange", "value": 6 },
+                { "color": "red", "value": 8 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "🚨 High-Risk Users",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT uniq(user_id) as high_risk_users FROM siem.behavioral_metrics WHERE risk_score > 7 AND event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 8, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "red" },
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "red", "value": 1 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "🔍 Anomaly Detection Alerts",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as anomalies FROM siem.anomaly_events WHERE event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 14, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "orange" }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "📊 Behavioral Pattern Changes",
+        "type": "stat",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT count() as pattern_changes FROM siem.behavioral_metrics WHERE pattern_deviation > 2.0 AND event_time >= now() - INTERVAL 1 HOUR",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 20, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "fixed", "fixedColor": "yellow" }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "📈 Risk Score Trends",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfMinute(event_time) as time, avg(risk_score) as 'Average Risk', max(risk_score) as 'Max Risk', countIf(risk_score > 7) as 'High Risk Users' FROM siem.behavioral_metrics WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+      },
+      {
+        "id": 6,
+        "title": "🎯 User Behavior Clusters",
+        "type": "piechart",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT behavior_cluster as 'Cluster', count() as 'Users' FROM siem.behavioral_metrics WHERE event_time >= now() - INTERVAL 1 HOUR GROUP BY behavior_cluster ORDER BY count() DESC",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+      },
+      {
+        "id": 7,
+        "title": "🚨 Top Risk Users",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT user_id as 'User ID', round(avg(risk_score), 2) as 'Avg Risk Score', count() as 'Events', max(event_time) as 'Last Activity', behavior_cluster as 'Behavior Cluster' FROM siem.behavioral_metrics WHERE event_time >= now() - INTERVAL 6 HOUR GROUP BY user_id, behavior_cluster HAVING avg(risk_score) > 5 ORDER BY avg(risk_score) DESC LIMIT 15",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+      },
+      {
+        "id": 8,
+        "title": "🔍 Anomaly Details",
+        "type": "table",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT event_time as 'Time', user_id as 'User', anomaly_type as 'Anomaly Type', confidence_score as 'Confidence', description as 'Description', source_ip as 'Source IP' FROM siem.anomaly_events WHERE event_time >= now() - INTERVAL 6 HOUR ORDER BY event_time DESC LIMIT 20",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+      },
+      {
+        "id": 9,
+        "title": "📊 Behavioral Pattern Analysis",
+        "type": "heatmap",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfHour(event_time) as time, behavior_cluster, count() as activity_count FROM siem.behavioral_metrics WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY time, behavior_cluster ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 }
+      },
+      {
+        "id": 10,
+        "title": "🧠 Machine Learning Model Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "ClickHouse-SIEM"
+            },
+            "rawSql": "SELECT toStartOfHour(event_time) as time, avg(model_accuracy) as 'Accuracy', avg(false_positive_rate) as 'False Positives', avg(detection_rate) as 'Detection Rate' FROM siem.ml_model_metrics WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY time ORDER BY time",
+            "refId": "A"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 }
+      }
+    ]
+  }
+}

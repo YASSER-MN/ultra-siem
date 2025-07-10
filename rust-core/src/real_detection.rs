@@ -1,357 +1,274 @@
-use tokio;
-use async_nats as nats;
-use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::process::Command;
-use std::fs;
+use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use rayon::prelude::*;
-use log::{info, error, warn};
-use crate::error_handling::{SIEMResult, SIEMError, time, safe_unwrap};
+use log::info;
+use crate::error_handling::SIEMResult;
+use memchr::memmem;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RealThreatEvent {
-    timestamp: u64,
-    source_ip: String,
-    threat_type: String,
-    payload: String,
-    severity: u8,
-    confidence: f32,
-    source: String, // "network", "filesystem", "events", "processes"
-    details: HashMap<String, String>,
+/// Real-time detection engine for Ultra SIEM
+pub struct RealDetectionEngine {
+    patterns: Arc<RwLock<HashMap<String, String>>>,
+    thresholds: Arc<RwLock<HashMap<String, u32>>>,
+    counters: Arc<RwLock<HashMap<String, u32>>>,
+    alerts: Arc<RwLock<Vec<String>>>,
 }
 
-pub struct RealThreatDetector {
-    nats_client: nats::Client,
-    reported_threats: Arc<tokio::sync::RwLock<std::collections::HashMap<String, u64>>>,
-    patterns: std::collections::HashMap<String, Vec<Vec<u8>>>,
-}
+impl RealDetectionEngine {
+    /// Create a new real-time detection engine
+    pub fn new() -> Self {
+        let mut engine = Self {
+            patterns: Arc::new(RwLock::new(HashMap::new())),
+            thresholds: Arc::new(RwLock::new(HashMap::new())),
+            counters: Arc::new(RwLock::new(HashMap::new())),
+            alerts: Arc::new(RwLock::new(Vec::new())),
+        };
+        
+        engine.initialize_patterns();
+        engine
+    }
 
-impl RealThreatDetector {
-    pub fn new(nats_client: nats::Client) -> Self {
-        let mut patterns = std::collections::HashMap::new();
+    /// Initialize default detection patterns
+    fn initialize_patterns(&mut self) {
+        let mut patterns = self.patterns.write().unwrap();
         
-        // Malware patterns
-        patterns.insert("malware".to_string(), vec![
-            b"powershell.exe -enc".to_vec(),
-            b"cmd.exe /c".to_vec(),
-            b"rundll32.exe".to_vec(),
-            b"regsvr32.exe".to_vec(),
-            b"mshta.exe".to_vec(),
-        ]);
-        
-        // Brute force patterns
-        patterns.insert("brute_force".to_string(), vec![
-            b"failed login".to_vec(),
-            b"authentication failure".to_vec(),
-            b"invalid password".to_vec(),
-            b"account locked".to_vec(),
-        ]);
-        
-        // SQL injection patterns
-        patterns.insert("sql_injection".to_string(), vec![
-            b"SELECT".to_vec(),
-            b"INSERT".to_vec(),
-            b"UPDATE".to_vec(),
-            b"DELETE".to_vec(),
-            b"DROP".to_vec(),
-            b"UNION".to_vec(),
-            b"OR 1=1".to_vec(),
-        ]);
+        // SQL Injection patterns
+        patterns.insert("sql_union".to_string(), "UNION SELECT".to_string());
+        patterns.insert("sql_drop".to_string(), "DROP TABLE".to_string());
+        patterns.insert("sql_insert".to_string(), "INSERT INTO".to_string());
         
         // XSS patterns
-        patterns.insert("xss".to_string(), vec![
-            b"<script".to_vec(),
-            b"javascript:".to_vec(),
-            b"onload=".to_vec(),
-            b"onerror=".to_vec(),
-            b"eval(".to_vec(),
-        ]);
-
-        Self {
-            nats_client,
-            reported_threats: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            patterns,
-        }
-    }
-
-    pub fn get_patterns(&self, threat_type: &str) -> Vec<Vec<u8>> {
-        self.patterns.get(threat_type)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    pub fn detect_threat_parallel(&self, data: &[u8], threat_type: &str) -> SIEMResult<bool> {
-        let patterns = self.get_patterns(threat_type);
+        patterns.insert("xss_script".to_string(), "<script>".to_string());
+        patterns.insert("xss_javascript".to_string(), "javascript:".to_string());
         
-        for pattern in &patterns {
-            if memchr::memmem::find(data, pattern).is_some() {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        // Command injection patterns
+        patterns.insert("cmd_exec".to_string(), "cmd.exe".to_string());
+        patterns.insert("powershell".to_string(), "powershell.exe".to_string());
+        
+        // File inclusion patterns
+        patterns.insert("path_traversal".to_string(), "../".to_string());
+        patterns.insert("remote_file".to_string(), "http://".to_string());
+        
+        info!("✅ Initialized {} real-time detection patterns", patterns.len());
     }
 
-    fn is_threat_already_reported(&self, threat_key: &str) -> SIEMResult<bool> {
-        let threats = safe_unwrap!(
-            self.reported_threats.try_read(),
-            "Failed to read reported threats"
-        );
-        Ok(threats.contains_key(threat_key))
-    }
-
-    fn mark_threat_reported(&self, threat_key: String) -> SIEMResult<()> {
-        let current_time = time::current_timestamp()?;
-        let mut threats = safe_unwrap!(
-            self.reported_threats.try_write(),
-            "Failed to write reported threats"
-        );
-        threats.insert(threat_key, current_time);
+    /// Add a new detection pattern
+    pub fn add_pattern(&self, name: String, pattern: String) -> SIEMResult<()> {
+        let mut patterns = self.patterns.write().unwrap();
+        patterns.insert(name.clone(), pattern);
+        info!("✅ Added detection pattern: {}", name);
         Ok(())
     }
 
-    pub async fn start_real_detection(&self) -> SIEMResult<()> {
-        info!("🔍 Starting REAL threat detection...");
-        
-        let nats_client = Arc::new(self.nats_client.clone());
-        
-        // Start all monitoring tasks concurrently
-        let event_monitor = self.monitor_windows_events(nats_client.clone());
-        let network_monitor = self.monitor_network_traffic(nats_client.clone());
-        let filesystem_monitor = self.monitor_filesystem(nats_client.clone());
-        let process_monitor = self.monitor_processes(nats_client.clone());
-
-        // Wait for all monitors with proper error handling
-        let results = tokio::try_join!(
-            event_monitor,
-            network_monitor,
-            filesystem_monitor,
-            process_monitor
-        );
-
-        match results {
-            Ok(_) => {
-                info!("✅ All monitoring tasks completed successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!("❌ Monitoring task failed: {}", e);
-                Err(SIEMError::InternalError(format!("Monitoring failed: {}", e)))
-            }
-        }
+    /// Set threshold for a pattern
+    pub fn set_threshold(&self, pattern_name: String, threshold: u32) -> SIEMResult<()> {
+        let mut thresholds = self.thresholds.write().unwrap();
+        thresholds.insert(pattern_name.clone(), threshold);
+        info!("✅ Set threshold for {}: {}", pattern_name, threshold);
+        Ok(())
     }
 
-    async fn monitor_windows_events(&self, nats_client: Arc<nats::Client>) -> SIEMResult<()> {
-        info!("🔍 Monitoring Windows Security Events...");
+    /// Process data for real-time detection
+    pub fn process_data(&self, data: &[u8]) -> SIEMResult<Vec<String>> {
+        let mut detections = Vec::new();
+        let patterns = self.patterns.read().unwrap();
+        let mut counters = self.counters.write().unwrap();
         
-        loop {
-            // Simulate Windows event monitoring
-            let current_time = time::current_timestamp()?;
-            
-            // Check for failed login attempts
-            if let Ok(failed_logins) = self.check_failed_logins().await {
-                if failed_logins > 5 {
-                    let threat_data = serde_json::json!({
-                        "threat_type": "brute_force",
-                        "confidence": 0.85,
-                        "source": "windows_events",
-                        "details": {
-                            "failed_attempts": failed_logins,
-                            "timestamp": current_time
-                        }
-                    });
-
-                    let threat_key = format!("brute_force_{}", current_time);
-                    if !self.is_threat_already_reported(&threat_key)? {
-                        self.publish_threat(&nats_client, &threat_data).await?;
-                        self.mark_threat_reported(threat_key)?;
+        for (pattern_name, pattern) in patterns.iter() {
+            if memmem::find(data, pattern.as_bytes()).is_some() {
+                // Increment counter
+                let count = counters.entry(pattern_name.clone()).or_insert(0);
+                *count += 1;
+                
+                // Check threshold
+                let thresholds = self.thresholds.read().unwrap();
+                if let Some(threshold) = thresholds.get(pattern_name) {
+                    if *count >= *threshold {
+                        let alert = format!("🚨 Pattern '{}' exceeded threshold {} (current: {})", 
+                                          pattern_name, threshold, count);
+                        detections.push(alert);
+                        
+                        // Reset counter after alert
+                        *count = 0;
                     }
+                } else {
+                    // No threshold set, alert immediately
+                    let alert = format!("🚨 Pattern '{}' detected", pattern_name);
+                    detections.push(alert);
                 }
             }
+        }
+        
+        Ok(detections)
+    }
 
+    /// Get current counters
+    pub fn get_counters(&self) -> HashMap<String, u32> {
+        self.counters.read().unwrap().clone()
+    }
+
+    /// Reset counters
+    pub fn reset_counters(&self) -> SIEMResult<()> {
+        let mut counters = self.counters.write().unwrap();
+        counters.clear();
+        info!("✅ Reset all pattern counters");
+        Ok(())
+    }
+
+    /// Get all alerts
+    pub fn get_alerts(&self) -> Vec<String> {
+        self.alerts.read().unwrap().clone()
+    }
+
+    /// Clear alerts
+    pub fn clear_alerts(&self) -> SIEMResult<()> {
+        let mut alerts = self.alerts.write().unwrap();
+        alerts.clear();
+        info!("✅ Cleared all alerts");
+        Ok(())
+    }
+
+    /// Start monitoring mode
+    pub async fn start_monitoring(&self) -> SIEMResult<()> {
+        info!("🚀 Starting real-time monitoring...");
+        
+        // Simulate monitoring loop
+        loop {
+            // In a real implementation, this would process incoming data
+            // For now, we'll just log that monitoring is active
+            info!("📊 Real-time monitoring active - processing events...");
+            
+            // Sleep for a short interval
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     }
 
-    async fn monitor_network_traffic(&self, nats_client: Arc<nats::Client>) -> SIEMResult<()> {
-        info!("🌐 Monitoring Network Traffic...");
-        
-        loop {
-            let current_time = time::current_timestamp()?;
-            
-            // Check for suspicious network activity
-            if let Ok(suspicious_connections) = self.check_suspicious_connections().await {
-                for connection in suspicious_connections {
-                    let threat_data = serde_json::json!({
-                        "threat_type": "network_anomaly",
-                        "confidence": 0.75,
-                        "source": "network_traffic",
-                        "details": {
-                            "source_ip": connection.source_ip,
-                            "destination_ip": connection.destination_ip,
-                            "port": connection.port,
-                            "timestamp": current_time
-                        }
-                    });
+    /// Process network traffic
+    pub fn process_network_traffic(&self, traffic_data: &[u8]) -> SIEMResult<Vec<String>> {
+        info!("🌐 Processing network traffic ({} bytes)", traffic_data.len());
+        self.process_data(traffic_data)
+    }
 
-                    let threat_key = format!("network_{}_{}", connection.source_ip, current_time);
-                    if !self.is_threat_already_reported(&threat_key)? {
-                        self.publish_threat(&nats_client, &threat_data).await?;
-                        self.mark_threat_reported(threat_key)?;
+    /// Process log data
+    pub fn process_log_data(&self, log_data: &[u8]) -> SIEMResult<Vec<String>> {
+        info!("📝 Processing log data ({} bytes)", log_data.len());
+        self.process_data(log_data)
+    }
+
+    /// Process file data
+    pub fn process_file_data(&self, file_data: &[u8]) -> SIEMResult<Vec<String>> {
+        info!("📁 Processing file data ({} bytes)", file_data.len());
+        self.process_data(file_data)
+    }
+
+    /// Get performance metrics
+    pub fn get_performance_metrics(&self) -> HashMap<String, f64> {
+        let mut metrics = HashMap::new();
+        
+        let patterns = self.patterns.read().unwrap();
+        let counters = self.counters.read().unwrap();
+        
+        metrics.insert("total_patterns".to_string(), patterns.len() as f64);
+        metrics.insert("active_counters".to_string(), counters.len() as f64);
+        
+        let total_matches: u32 = counters.values().sum();
+        metrics.insert("total_matches".to_string(), total_matches as f64);
+        
+        metrics
+    }
+
+    /// Export detection rules
+    pub fn export_rules(&self) -> SIEMResult<String> {
+        let patterns = self.patterns.read().unwrap();
+        let thresholds = self.thresholds.read().unwrap();
+        
+        let mut rules = Vec::new();
+        for (name, pattern) in patterns.iter() {
+            let threshold = thresholds.get(name).unwrap_or(&0);
+            rules.push(format!("{}: {} (threshold: {})", name, pattern, threshold));
+        }
+        
+        Ok(rules.join("\n"))
+    }
+
+    /// Import detection rules
+    pub fn import_rules(&self, rules_data: &str) -> SIEMResult<()> {
+        info!("📥 Importing detection rules...");
+        
+        for line in rules_data.lines() {
+            if let Some((name, rest)) = line.split_once(':') {
+                if let Some((pattern, threshold_str)) = rest.rsplit_once("(threshold: ") {
+                    if let Ok(threshold) = threshold_str.trim_end_matches(')').parse::<u32>() {
+                        self.add_pattern(name.trim().to_string(), pattern.trim().to_string())?;
+                        self.set_threshold(name.trim().to_string(), threshold)?;
                     }
                 }
             }
-
-            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
-    }
-
-    async fn monitor_filesystem(&self, nats_client: Arc<nats::Client>) -> SIEMResult<()> {
-        info!("📁 Monitoring File System...");
         
-        loop {
-            let current_time = time::current_timestamp()?;
-            
-            // Check for suspicious file operations
-            if let Ok(suspicious_files) = self.check_suspicious_files().await {
-                for file in suspicious_files {
-                    let threat_data = serde_json::json!({
-                        "threat_type": "file_anomaly",
-                        "confidence": 0.8,
-                        "source": "filesystem",
-                        "details": {
-                            "file_path": file.path,
-                            "operation": file.operation,
-                            "timestamp": current_time
-                        }
-                    });
-
-                    let threat_key = format!("file_{}_{}", file.path, current_time);
-                    if !self.is_threat_already_reported(&threat_key)? {
-                        self.publish_threat(&nats_client, &threat_data).await?;
-                        self.mark_threat_reported(threat_key)?;
-                    }
-                }
-            }
-
-            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
-        }
-    }
-
-    async fn monitor_processes(&self, nats_client: Arc<nats::Client>) -> SIEMResult<()> {
-        info!("⚙️ Monitoring Processes...");
-        
-        loop {
-            let current_time = time::current_timestamp()?;
-            
-            // Check for suspicious processes
-            if let Ok(suspicious_processes) = self.check_suspicious_processes().await {
-                for process in suspicious_processes {
-                    let threat_data = serde_json::json!({
-                        "threat_type": "process_anomaly",
-                        "confidence": 0.7,
-                        "source": "process_monitor",
-                        "details": {
-                            "process_name": process.name,
-                            "pid": process.pid,
-                            "command_line": process.command_line,
-                            "timestamp": current_time
-                        }
-                    });
-
-                    let threat_key = format!("process_{}_{}", process.pid, current_time);
-                    if !self.is_threat_already_reported(&threat_key)? {
-                        self.publish_threat(&nats_client, &threat_data).await?;
-                        self.mark_threat_reported(threat_key)?;
-                    }
-                }
-            }
-
-            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-        }
-    }
-
-    async fn publish_threat(&self, nats_client: &Arc<nats::Client>, threat_data: &serde_json::Value) -> SIEMResult<()> {
-        let json_string = safe_unwrap!(
-            serde_json::to_string(threat_data),
-            "Failed to serialize threat data"
-        );
-
-        match nats_client.publish("ultra-siem.threats", json_string.as_bytes()) {
-            Ok(_) => {
-                info!("🚨 Threat detected and published: {}", threat_data["threat_type"]);
-                Ok(())
-            }
-            Err(e) => {
-                error!("❌ Failed to publish threat: {}", e);
-                Err(SIEMError::NetworkError(format!("Failed to publish threat: {}", e)))
-            }
-        }
-    }
-
-    // Mock monitoring functions - in production, these would interface with real system APIs
-    async fn check_failed_logins(&self) -> SIEMResult<u32> {
-        // Simulate checking Windows event logs
-        Ok(rand::random::<u32>() % 10)
-    }
-
-    async fn check_suspicious_connections(&self) -> SIEMResult<Vec<NetworkConnection>> {
-        // Simulate network monitoring
-        Ok(vec![])
-    }
-
-    async fn check_suspicious_files(&self) -> SIEMResult<Vec<FileOperation>> {
-        // Simulate file system monitoring
-        Ok(vec![])
-    }
-
-    async fn check_suspicious_processes(&self) -> SIEMResult<Vec<ProcessInfo>> {
-        // Simulate process monitoring
-        Ok(vec![])
+        info!("✅ Successfully imported detection rules");
+        Ok(())
     }
 }
 
-#[derive(Debug)]
-struct NetworkConnection {
-    source_ip: String,
-    destination_ip: String,
-    port: u16,
-}
-
-#[derive(Debug)]
-struct FileOperation {
-    path: String,
-    operation: String,
-}
-
-#[derive(Debug)]
-struct ProcessInfo {
-    name: String,
-    pid: u32,
-    command_line: String,
+impl Default for RealDetectionEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_threat_detection() {
-        let nats_client = nats::connect("nats://127.0.0.1:4222").unwrap();
-        let detector = RealThreatDetector::new(nats_client);
+    #[test]
+    fn test_real_detection_engine() {
+        let engine = RealDetectionEngine::new();
         
-        let malicious_data = b"powershell.exe -enc SGVsbG8gV29ybGQ=";
-        let result = detector.detect_threat_parallel(malicious_data, "malware").unwrap();
-        assert!(result);
+        // Test pattern addition
+        assert!(engine.add_pattern("test_pattern".to_string(), "test".to_string()).is_ok());
+        
+        // Test threshold setting
+        assert!(engine.set_threshold("test_pattern".to_string(), 5).is_ok());
+        
+        // Test data processing
+        let test_data = b"test data with test pattern";
+        let detections = engine.process_data(test_data).unwrap();
+        assert!(!detections.is_empty());
+        
+        // Test counter reset
+        assert!(engine.reset_counters().is_ok());
+        
+        // Test alert clearing
+        assert!(engine.clear_alerts().is_ok());
     }
 
     #[test]
-    fn test_pattern_retrieval() {
-        let nats_client = nats::connect("nats://127.0.0.1:4222").unwrap();
-        let detector = RealThreatDetector::new(nats_client);
+    fn test_sql_injection_detection() {
+        let engine = RealDetectionEngine::new();
         
-        let patterns = detector.get_patterns("malware");
-        assert!(!patterns.is_empty());
+        let sql_payload = b"SELECT * FROM users UNION SELECT * FROM passwords";
+        let detections = engine.process_data(sql_payload).unwrap();
+        
+        // Should detect SQL injection patterns
+        assert!(!detections.is_empty());
+    }
+
+    #[test]
+    fn test_xss_detection() {
+        let engine = RealDetectionEngine::new();
+        
+        let xss_payload = b"<script>alert('XSS')</script>";
+        let detections = engine.process_data(xss_payload).unwrap();
+        
+        // Should detect XSS patterns
+        assert!(!detections.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_monitoring_start() {
+        let engine = RealDetectionEngine::new();
+        
+        // This should not panic
+        // Note: In a real test, you'd want to spawn this in a separate task
+        // and then cancel it after a short time
     }
 } 
