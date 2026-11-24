@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Contact Developer
+    url: mailto:yassermn238@gmail.com
+    about: Contact Yasser Mounim directly for questions and support
+  - name: 🔒 Security Vulnerability
+    url: mailto:yassermn238@gmail.com
+    about: Please report security vulnerabilities privately via email
+  - name: 📖 Discussions
+    url: https://github.com/YASSER-MN/ultra-siem/discussions
+    about: Join discussions about features, ideas, and general questions

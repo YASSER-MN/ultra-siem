@@ -1,0 +1,49 @@
+groups:
+  - name: Ultra SIEM Critical Alerts
+    folder: SIEM
+    interval: 1m
+    rules:
+      - uid: high-threat-count
+        title: High Threat Count
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: clickhouse
+            model:
+              rawSql: |
+                SELECT count() as threat_count FROM bulletproof_threats WHERE timestamp >= now() - INTERVAL 5 MINUTE
+              format: table
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "High threat count detected in the last 5 minutes."
+        labels:
+          severity: critical
+        notifications:
+          - uid: admin-email
+      - uid: system-offline
+        title: System Offline
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: clickhouse
+            model:
+              rawSql: |
+                SELECT 1 WHERE (SELECT count() FROM system_events WHERE event_type = 'engine_heartbeat' AND timestamp >= now() - INTERVAL 1 MINUTE) = 0
+              format: table
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "No engine heartbeat detected in the last minute. System may be offline."
+        labels:
+          severity: critical
+        notifications:
+          - uid: admin-email

@@ -1,0 +1,47 @@
+FROM rust:latest as builder
+
+ARG TARGET_PLATFORM=linux
+
+WORKDIR /app
+
+# Install platform-specific build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    gcc \
+    libc6-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY Cargo.toml Cargo.lock ./
+
+# Copy source based on platform
+COPY src/ ./src/
+RUN if [ "$TARGET_PLATFORM" = "universal" ] || [ -f "src/universal_main.rs" ]; then \
+        cp src/universal_main.rs src/main.rs; \
+    fi
+
+# Build with optimizations
+RUN cargo build --release --locked
+
+# Production stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r siem && useradd -r -g siem siem
+
+# Copy binary
+COPY --from=builder /app/target/release/siem-rust-core /usr/local/bin/siem-core
+RUN chmod +x /usr/local/bin/siem-core
+
+# Switch to non-root user
+USER siem
+
+EXPOSE 8080
+
+CMD ["siem-core"] 

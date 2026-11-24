@@ -1,0 +1,293 @@
+# 🛡️ Ultra SIEM - Vector Cloud Configuration
+# Professional cloud log collection and processing
+
+# Global configuration
+global = {
+  data_dir = "/var/lib/vector"
+  log_schema = {
+    host_key = "host"
+    message_key = "message"
+    timestamp_key = "timestamp"
+  }
+}
+
+# Sources - Cloud Log Ingestion
+[sources.aws_cloudwatch]
+type = "aws_cloudwatch_logs"
+region = "us-east-1"
+group_name = "/aws/cloudtrail"
+stream_name = "all"
+assume_role = "arn:aws:iam::123456789012:role/UltraSIEMCloudWatchRole"
+encoding.codec = "json"
+
+[sources.aws_cloudwatch_vpc]
+type = "aws_cloudwatch_logs"
+region = "us-east-1"
+group_name = "/aws/vpc/flowlogs"
+stream_name = "all"
+assume_role = "arn:aws:iam::123456789012:role/UltraSIEMCloudWatchRole"
+encoding.codec = "json"
+
+[sources.aws_cloudwatch_rds]
+type = "aws_cloudwatch_logs"
+region = "us-east-1"
+group_name = "/aws/rds/instance"
+stream_name = "all"
+assume_role = "arn:aws:iam::123456789012:role/UltraSIEMCloudWatchRole"
+encoding.codec = "json"
+
+[sources.azure_monitor]
+type = "azure_monitor_logs"
+tenant_id = "your-tenant-id"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+subscription_id = "your-subscription-id"
+resource_group = "your-resource-group"
+workspace_id = "your-workspace-id"
+table = "AuditLogs"
+encoding.codec = "json"
+
+[sources.azure_security]
+type = "azure_monitor_logs"
+tenant_id = "your-tenant-id"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+subscription_id = "your-subscription-id"
+resource_group = "your-resource-group"
+workspace_id = "your-workspace-id"
+table = "SecurityAlert"
+encoding.codec = "json"
+
+[sources.gcp_logging]
+type = "gcp_pubsub"
+project = "your-gcp-project"
+subscription = "ultra-siem-logs"
+encoding.codec = "json"
+
+[sources.gcp_audit]
+type = "gcp_pubsub"
+project = "your-gcp-project"
+subscription = "ultra-siem-audit"
+encoding.codec = "json"
+
+# Transforms - Data Processing and Normalization
+
+# AWS CloudWatch Logs Processing
+[transforms.aws_cloudwatch_parser]
+type = "remap"
+inputs = ["aws_cloudwatch", "aws_cloudwatch_vpc", "aws_cloudwatch_rds"]
+source = '''
+# Parse AWS CloudWatch logs
+. = parse_json!(.message)
+
+# Extract common fields
+.timestamp = .timestamp ?? now()
+.source_ip = .sourceIPAddress ?? .src_ip ?? ""
+.destination_ip = .dst_ip ?? ""
+.user = .userIdentity?.userName ?? .userIdentity?.principalId ?? ""
+.event_type = "aws_cloudwatch"
+.log_source = "aws_cloudwatch"
+
+# Parse CloudTrail events
+if exists(.eventName) {
+  .event_type = "aws_cloudtrail"
+  .event_category = "cloudtrail"
+  .message = "AWS API Call: " + .eventName + " by " + .user
+  .severity = if includes(["CreateUser", "DeleteUser", "CreateAccessKey", "DeleteAccessKey"], .eventName) { 4 } else { 2 }
+}
+
+# Parse VPC Flow Logs
+if exists(.src_ip) {
+  .event_type = "aws_vpc_flow"
+  .event_category = "vpc_flow"
+  .message = "VPC Flow: " + .action + " " + .protocol + " " + .src_ip + ":" + .src_port + " -> " + .dst_ip + ":" + .dst_port
+  .severity = if .action == "REJECT" { 4 } else { 2 }
+}
+
+# Parse RDS Logs
+if exists(.logStream) and includes(.logStream, "rds") {
+  .event_type = "aws_rds"
+  .event_category = "database"
+  .message = "RDS Log: " + .message
+  .severity = if includes(["error", "failed", "denied"], .message) { 4 } else { 2 }
+}
+'''
+
+# Azure Monitor Logs Processing
+[transforms.azure_monitor_parser]
+type = "remap"
+inputs = ["azure_monitor", "azure_security"]
+source = '''
+# Parse Azure Monitor logs
+. = parse_json!(.message)
+
+# Extract common fields
+.timestamp = .timestamp ?? now()
+.source_ip = .callerIpAddress ?? ""
+.user = .initiatedBy?.user?.userPrincipalName ?? .userPrincipalName ?? ""
+.event_type = "azure_monitor"
+.log_source = "azure_monitor"
+
+# Parse Audit Logs
+if exists(.category) {
+  .event_type = "azure_audit"
+  .event_category = "azure_ad_audit"
+  .message = "Azure AD Audit: " + .activityDisplayName + " by " + .user
+  .severity = if includes(["UserManagement", "GroupManagement", "ApplicationManagement"], .category) { 4 } else { 2 }
+}
+
+# Parse Security Alerts
+if exists(.alertName) {
+  .event_type = "azure_security"
+  .event_category = "security_alert"
+  .message = "Azure Security Alert: " + .alertName
+  .severity = if .severity == "high" { 5 } else if .severity == "medium" { 4 } else { 3 }
+}
+'''
+
+# GCP Logging Processing
+[transforms.gcp_logging_parser]
+type = "remap"
+inputs = ["gcp_logging", "gcp_audit"]
+source = '''
+# Parse GCP logs
+. = parse_json!(.message)
+
+# Extract common fields
+.timestamp = .timestamp ?? now()
+.source_ip = .callerIp ?? ""
+.user = .authenticationInfo?.principalEmail ?? ""
+.event_type = "gcp_logging"
+.log_source = "gcp_logging"
+
+# Parse Audit Logs
+if exists(.methodName) {
+  .event_type = "gcp_audit"
+  .event_category = "gcp_audit"
+  .message = "GCP Audit: " + .methodName + " by " + .user
+  .severity = if includes(["SetIamPolicy", "CreateServiceAccount", "DeleteServiceAccount"], .methodName) { 4 } else { 2 }
+}
+
+# Parse VPC Flow Logs
+if exists(.src_ip) {
+  .event_type = "gcp_vpc_flow"
+  .event_category = "vpc_flow"
+  .message = "GCP VPC Flow: " + .action + " " + .protocol + " " + .src_ip + ":" + .src_port + " -> " + .dst_ip + ":" + .dst_port
+  .severity = if .action == "DENY" { 4 } else { 2 }
+}
+'''
+
+# Common Normalization
+[transforms.normalize_events]
+type = "remap"
+inputs = ["aws_cloudwatch_parser", "azure_monitor_parser", "gcp_logging_parser"]
+source = '''
+# Normalize all events to Ultra SIEM schema
+.id = uuid_v4()
+.timestamp = to_timestamp!(.timestamp)
+.source_ip = .source_ip ?? ""
+.destination_ip = .destination_ip ?? ""
+.event_type = .event_type ?? "unknown"
+.severity = .severity ?? 2
+.message = .message ?? "Cloud log event"
+.raw_message = encode_json!(.)
+.log_source = .log_source ?? "cloud"
+.user = .user ?? ""
+.hostname = .hostname ?? ""
+.process = .process ?? ""
+.event_id = .event_id ?? ""
+.event_category = .event_category ?? "cloud"
+.metadata = {
+  "cloud_provider": if .log_source == "aws_cloudwatch" { "aws" } else if .log_source == "azure_monitor" { "azure" } else { "gcp" },
+  "original_log": .message
+}
+
+# Remove temporary fields
+del(.sourceIPAddress, .src_ip, .dst_ip, .userIdentity, .initiatedBy, .authenticationInfo, .methodName, .category, .alertName)
+'''
+
+# Threat Detection
+[transforms.threat_detection]
+type = "remap"
+inputs = ["normalize_events"]
+source = '''
+# Threat detection rules
+.threats = []
+
+# Failed authentication attempts
+if .event_type == "failed_signin" and .severity >= 3 {
+  .threats = push(.threats, "failed_authentication")
+  .severity = 4
+}
+
+# Privilege escalation
+if includes(["CreateUser", "SetIamPolicy", "CreateServiceAccount"], .event_type) {
+  .threats = push(.threats, "privilege_escalation")
+  .severity = 5
+}
+
+# Network attacks
+if .event_type == "vpc_flow" and .action == "REJECT" {
+  .threats = push(.threats, "network_attack")
+  .severity = 4
+}
+
+# Data exfiltration
+if .event_type == "storage_access" and .severity >= 4 {
+  .threats = push(.threats, "data_exfiltration")
+  .severity = 5
+}
+
+# Update message with threat information
+if length(.threats) > 0 {
+  .message = .message + " [THREATS: " + join(.threats, ", ") + "]"
+}
+'''
+
+# Sinks - Output to Ultra SIEM
+
+# NATS Output
+[sinks.ultra_siem_nats]
+type = "nats"
+inputs = ["threat_detection"]
+address = "nats://nats:4222"
+subject = "ultra_siem.events"
+encoding.codec = "json"
+compression = "gzip"
+
+# HTTP Fallback
+[sinks.ultra_siem_http]
+type = "http"
+inputs = ["threat_detection"]
+uri = "http://ultra-siem-api:8080/events"
+method = "post"
+encoding.codec = "json"
+compression = "gzip"
+headers = {
+  "Content-Type" = "application/json"
+  "Authorization" = "Bearer ${ULTRA_SIEM_TOKEN}"
+}
+
+# File Output for Backup
+[sinks.cloud_logs_backup]
+type = "file"
+inputs = ["threat_detection"]
+path = "/var/log/ultra-siem/cloud-logs-%Y-%m-%d.log"
+encoding.codec = "json"
+compression = "gzip"
+
+# Metrics Output
+[sinks.cloud_metrics]
+type = "prometheus"
+inputs = ["threat_detection"]
+endpoint = "0.0.0.0:9090"
+namespace = "ultra_siem_cloud"
+default_histogram_buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+# Health Check
+[sinks.health_check]
+type = "http"
+inputs = ["threat_detection"]
+uri = "http://localhost:8080/health"
+method = "post"
+encoding.codec = "json" 

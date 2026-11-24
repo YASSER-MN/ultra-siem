@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultra SIEM - Live Demo Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #004000 0%, #0066cc 100%);
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo img {
+            width: 40px;
+            height: 40px;
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #00ff00;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main-content {
+            margin-top: 80px;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: #00ff00;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric {
+            text-align: center;
+            padding: 1rem;
+            background: rgba(0, 255, 0, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(0, 255, 0, 0.3);
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #00ff00;
+        }
+
+        .metric-label {
+            font-size: 0.875rem;
+            opacity: 0.8;
+        }
+
+        .threat-feed {
+            height: 400px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .threat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            border-left: 4px solid #00ff00;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .threat-severity {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .severity-high {
+            background: #dc3545;
+            color: white;
+        }
+
+        .severity-medium {
+            background: #ffc107;
+            color: black;
+        }
+
+        .severity-low {
+            background: #28a745;
+            color: white;
+        }
+
+        .performance-chart {
+            height: 300px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-line {
+            stroke: #00ff00;
+            stroke-width: 3;
+            fill: none;
+            animation: drawLine 2s ease-out;
+        }
+
+        @keyframes drawLine {
+            from {
+                stroke-dasharray: 1000;
+                stroke-dashoffset: 1000;
+            }
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #00ff00;
+            color: #004000;
+        }
+
+        .btn-primary:hover {
+            background: #00cc00;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #00ff00;
+            border: 2px solid #00ff00;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 255, 0, 0.1);
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .architecture-diagram {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .component {
+            text-align: center;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .component-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .component-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .component-status {
+            font-size: 0.875rem;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <img src="../.github/assets/logo.svg" alt="Ultra SIEM Logo">
+            <h1>Ultra SIEM</h1>
+        </div>
+        <div class="status">
+            <div class="status-indicator"></div>
+            <span>Live Demo - Real-time Monitoring</span>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <!-- Performance Metrics -->
+        <div class="card">
+            <h2>⚡ Performance Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric">
+                    <div class="metric-value" id="events-per-sec">1,247,892</div>
+                    <div class="metric-label">Events/Second</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="query-latency">3.2ms</div>
+                    <div class="metric-label">Query Latency</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="memory-usage">3.8GB</div>
+                    <div class="metric-label">Memory Usage</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="cpu-usage">67%</div>
+                    <div class="metric-label">CPU Usage</div>
+                </div>
+            </div>
+            <div class="performance-chart">
+                <svg width="100%" height="100%" viewBox="0 0 400 200">
+                    <path class="chart-line" d="M0,150 L50,120 L100,80 L150,60 L200,40 L250,30 L300,20 L350,15 L400,10" />
+                </svg>
+            </div>
+        </div>
+
+        <!-- Threat Detection -->
+        <div class="card">
+            <h2>🛡️ Real-Time Threat Detection</h2>
+            <div class="threat-feed" id="threat-feed">
+                <!-- Threat items will be dynamically added here -->
+            </div>
+            <div class="controls">
+                <button class="btn btn-primary" onclick="simulateAttack()">Simulate Attack</button>
+                <button class="btn btn-secondary" onclick="clearThreats()">Clear Threats</button>
+            </div>
+        </div>
+
+        <!-- System Architecture -->
+        <div class="card full-width">
+            <h2>🏗️ System Architecture</h2>
+            <div class="architecture-diagram">
+                <div class="component">
+                    <div class="component-icon">🦀</div>
+                    <div class="component-name">Rust Core</div>
+                    <div class="component-status">Active - 1M+ events/sec</div>
+                </div>
+                <div class="component">
+                    <div class="component-icon">🐹</div>
+                    <div class="component-name">Go Processor</div>
+                    <div class="component-status">Active - Real-time processing</div>
+                </div>
+                <div class="component">
+                    <div class="component-icon">⚡</div>
+                    <div class="component-name">Zig Query</div>
+                    <div class="component-status">Active - <5ms latency</div>
+                </div>
+                <div class="component">
+                    <div class="component-icon">🗄️</div>
+                    <div class="component-name">ClickHouse</div>
+                    <div class="component-status">Active - Columnar storage</div>
+                </div>
+                <div class="component">
+                    <div class="component-icon">📡</div>
+                    <div class="component-name">NATS</div>
+                    <div class="component-status">Active - Zero-latency messaging</div>
+                </div>
+                <div class="component">
+                    <div class="component-icon">📊</div>
+                    <div class="component-name">Grafana</div>
+                    <div class="component-status">Active - Real-time dashboards</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Statistics -->
+        <div class="card full-width">
+            <h2>📊 Live Statistics</h2>
+            <div class="metrics-grid">
+                <div class="metric">
+                    <div class="metric-value" id="total-threats">1,847</div>
+                    <div class="metric-label">Total Threats Detected</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="false-positives">0.02%</div>
+                    <div class="metric-label">False Positive Rate</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="uptime">99.99%</div>
+                    <div class="metric-label">System Uptime</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="cost-savings">$2.4M</div>
+                    <div class="metric-label">Cost Savings vs Splunk</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Simulate real-time data updates
+        function updateMetrics() {
+            // Update events per second with realistic variation
+            const eventsPerSec = 1000000 + Math.random() * 500000;
+            document.getElementById('events-per-sec').textContent = Math.floor(eventsPerSec).toLocaleString();
+            
+            // Update query latency
+            const latency = 2 + Math.random() * 6;
+            document.getElementById('query-latency').textContent = latency.toFixed(1) + 'ms';
+            
+            // Update memory usage
+            const memory = 3.5 + Math.random() * 1;
+            document.getElementById('memory-usage').textContent = memory.toFixed(1) + 'GB';
+            
+            // Update CPU usage
+            const cpu = 60 + Math.random() * 20;
+            document.getElementById('cpu-usage').textContent = Math.floor(cpu) + '%';
+        }
+
+        // Simulate threat detection
+        function simulateAttack() {
+            const threats = [
+                { type: 'Brute Force Attack', severity: 'high', source: '192.168.1.100', time: new Date() },
+                { type: 'SQL Injection Attempt', severity: 'medium', source: '10.0.0.50', time: new Date() },
+                { type: 'Malware Detection', severity: 'high', source: '172.16.0.25', time: new Date() },
+                { type: 'Suspicious File Upload', severity: 'medium', source: '203.0.113.10', time: new Date() },
+                { type: 'DDoS Attack', severity: 'high', source: '198.51.100.5', time: new Date() }
+            ];
+            
+            const randomThreat = threats[Math.floor(Math.random() * threats.length)];
+            addThreatToFeed(randomThreat);
+        }
+
+        function addThreatToFeed(threat) {
+            const threatFeed = document.getElementById('threat-feed');
+            const threatItem = document.createElement('div');
+            threatItem.className = 'threat-item';
+            
+            threatItem.innerHTML = `
+                <div>
+                    <div style="font-weight: 600;">${threat.type}</div>
+                    <div style="font-size: 0.875rem; opacity: 0.8;">Source: ${threat.source}</div>
+                </div>
+                <div>
+                    <span class="threat-severity severity-${threat.severity}">${threat.severity.toUpperCase()}</span>
+                    <div style="font-size: 0.75rem; margin-top: 0.25rem;">${threat.time.toLocaleTimeString()}</div>
+                </div>
+            `;
+            
+            threatFeed.insertBefore(threatItem, threatFeed.firstChild);
+            
+            // Keep only last 20 threats
+            if (threatFeed.children.length > 20) {
+                threatFeed.removeChild(threatFeed.lastChild);
+            }
+        }
+
+        function clearThreats() {
+            document.getElementById('threat-feed').innerHTML = '';
+        }
+
+        // Update statistics
+        function updateStatistics() {
+            const totalThreats = 1800 + Math.floor(Math.random() * 100);
+            document.getElementById('total-threats').textContent = totalThreats.toLocaleString();
+            
+            const costSavings = 2.3 + Math.random() * 0.4;
+            document.getElementById('cost-savings').textContent = '$' + costSavings.toFixed(1) + 'M';
+        }
+
+        // Initialize demo
+        function initDemo() {
+            // Add some initial threats
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => simulateAttack(), i * 1000);
+            }
+            
+            // Start real-time updates
+            setInterval(updateMetrics, 2000);
+            setInterval(updateStatistics, 5000);
+            setInterval(() => {
+                if (Math.random() < 0.3) { // 30% chance every 5 seconds
+                    simulateAttack();
+                }
+            }, 5000);
+        }
+
+        // Start the demo when page loads
+        window.addEventListener('load', initDemo);
+    </script>
+</body>
+</html> 

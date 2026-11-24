@@ -1,0 +1,397 @@
+groups:
+  - name: ultra_siem_health
+    rules:
+      # Overall System Health
+      - alert: UltraSIEMSystemCritical
+        expr: ultra_siem_health_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Ultra SIEM system is in critical state"
+          description: "One or more critical components are down for more than 1 minute"
+
+      - alert: UltraSIEMSystemWarning
+        expr: ultra_siem_health_status == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Ultra SIEM system has warnings"
+          description: "One or more components are in warning state for more than 2 minutes"
+
+      # Component Health Alerts
+      - alert: ClickHouseDown
+        expr: up{job="clickhouse"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: clickhouse
+        annotations:
+          summary: "ClickHouse database is down"
+          description: "ClickHouse database has been down for more than 30 seconds"
+
+      - alert: ClickHouseHighResponseTime
+        expr: ultra_siem_response_time{component="clickhouse"} > 1000
+        for: 2m
+        labels:
+          severity: warning
+          component: clickhouse
+        annotations:
+          summary: "ClickHouse response time is high"
+          description: "ClickHouse response time is above 1000ms for more than 2 minutes"
+
+      - alert: NATSDown
+        expr: up{job="nats"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: nats
+        annotations:
+          summary: "NATS messaging system is down"
+          description: "NATS messaging system has been down for more than 30 seconds"
+
+      - alert: RustCoreDown
+        expr: up{job="ultra-siem-rust-core"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: rust-core
+        annotations:
+          summary: "Rust Core threat detection engine is down"
+          description: "Rust Core engine has been down for more than 30 seconds"
+
+      - alert: GoBridgeDown
+        expr: up{job="ultra-siem-go-bridge"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: go-bridge
+        annotations:
+          summary: "Go Bridge data processor is down"
+          description: "Go Bridge processor has been down for more than 30 seconds"
+
+      - alert: ZigQueryDown
+        expr: up{job="ultra-siem-zig-query"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: zig-query
+        annotations:
+          summary: "Zig Query engine is down"
+          description: "Zig Query engine has been down for more than 30 seconds"
+
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          component: grafana
+        annotations:
+          summary: "Grafana dashboards are down"
+          description: "Grafana dashboard service has been down for more than 1 minute"
+
+      # Performance Alerts
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes{container=~"ultra-siem-.*"} / container_spec_memory_limit_bytes{container=~"ultra-siem-.*"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High memory usage detected"
+          description: "Container {{ $labels.container }} is using more than 85% of allocated memory"
+
+      - alert: CriticalMemoryUsage
+        expr: (container_memory_usage_bytes{container=~"ultra-siem-.*"} / container_spec_memory_limit_bytes{container=~"ultra-siem-.*"}) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Container {{ $labels.container }} is using more than 95% of allocated memory"
+
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{container=~"ultra-siem-.*"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Container {{ $labels.container }} is using more than 80% CPU"
+
+      - alert: CriticalCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{container=~"ultra-siem-.*"}[5m]) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "Container {{ $labels.container }} is using more than 95% CPU"
+
+      # Event Processing Alerts
+      - alert: LowEventProcessingRate
+        expr: rate(ultra_siem_events_processed_total[5m]) < 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: events
+        annotations:
+          summary: "Low event processing rate"
+          description: "Event processing rate is below 1000 events/second for more than 5 minutes"
+
+      - alert: NoEventProcessing
+        expr: rate(ultra_siem_events_processed_total[5m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: events
+        annotations:
+          summary: "No event processing"
+          description: "No events are being processed for more than 2 minutes"
+
+      # Query Performance Alerts
+      - alert: HighQueryLatency
+        expr: histogram_quantile(0.95, rate(ultra_siem_query_duration_seconds_bucket[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: queries
+        annotations:
+          summary: "High query latency detected"
+          description: "95th percentile query latency is above 10ms for more than 5 minutes"
+
+      - alert: CriticalQueryLatency
+        expr: histogram_quantile(0.95, rate(ultra_siem_query_duration_seconds_bucket[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: queries
+        annotations:
+          summary: "Critical query latency detected"
+          description: "95th percentile query latency is above 50ms for more than 2 minutes"
+
+      # Error Rate Alerts
+      - alert: HighErrorRate
+        expr: rate(ultra_siem_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: errors
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 0.1 errors/second for more than 5 minutes"
+
+      - alert: CriticalErrorRate
+        expr: rate(ultra_siem_errors_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: critical
+          component: errors
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is above 1 error/second for more than 2 minutes"
+
+      # Connection Alerts
+      - alert: NoActiveConnections
+        expr: ultra_siem_active_connections == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: connections
+        annotations:
+          summary: "No active connections"
+          description: "No active connections detected for more than 2 minutes"
+
+      - alert: LowActiveConnections
+        expr: ultra_siem_active_connections < 5
+        for: 5m
+        labels:
+          severity: warning
+          component: connections
+        annotations:
+          summary: "Low number of active connections"
+          description: "Active connections are below 5 for more than 5 minutes"
+
+      # Threat Detection Alerts
+      - alert: NoThreatDetection
+        expr: rate(ultra_siem_threats_detected_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: threats
+        annotations:
+          summary: "No threat detection activity"
+          description: "No threats have been detected for more than 10 minutes"
+
+      - alert: HighThreatRate
+        expr: rate(ultra_siem_threats_detected_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: threats
+        annotations:
+          summary: "High threat detection rate"
+          description: "Threat detection rate is above 10 threats/minute for more than 2 minutes"
+
+      # Network I/O Alerts
+      - alert: HighNetworkIO
+        expr: rate(container_network_receive_bytes_total{container=~"ultra-siem-.*"}[5m]) / 1024 / 1024 > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High network I/O detected"
+          description: "Container {{ $labels.container }} has high network receive rate"
+
+      - alert: HighNetworkTransmit
+        expr: rate(container_network_transmit_bytes_total{container=~"ultra-siem-.*"}[5m]) / 1024 / 1024 > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High network transmit detected"
+          description: "Container {{ $labels.container }} has high network transmit rate"
+
+      # Disk I/O Alerts
+      - alert: HighDiskIO
+        expr: rate(container_fs_reads_bytes_total{container=~"ultra-siem-.*"}[5m]) / 1024 / 1024 > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: disk
+        annotations:
+          summary: "High disk read I/O detected"
+          description: "Container {{ $labels.container }} has high disk read rate"
+
+      - alert: HighDiskWriteIO
+        expr: rate(container_fs_writes_bytes_total{container=~"ultra-siem-.*"}[5m]) / 1024 / 1024 > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: disk
+        annotations:
+          summary: "High disk write I/O detected"
+          description: "Container {{ $labels.container }} has high disk write rate"
+
+      # Uptime Alerts
+      - alert: ComponentRestarted
+        expr: changes(ultra_siem_uptime_seconds[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: uptime
+        annotations:
+          summary: "Component restarted"
+          description: "Component {{ $labels.component }} has been restarted"
+
+      - alert: LowUptime
+        expr: ultra_siem_uptime_seconds < 3600
+        for: 1m
+        labels:
+          severity: warning
+          component: uptime
+        annotations:
+          summary: "Component has low uptime"
+          description: "Component {{ $labels.component }} has been running for less than 1 hour"
+
+      # Container Health Alerts
+      - alert: ContainerOOMKilled
+        expr: increase(container_oom_killed_total{container=~"ultra-siem-.*"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          component: container
+        annotations:
+          summary: "Container OOM killed"
+          description: "Container {{ $labels.container }} was killed due to out of memory"
+
+      - alert: ContainerRestarting
+        expr: increase(container_restart_count{container=~"ultra-siem-.*"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container restarting frequently"
+          description: "Container {{ $labels.container }} is restarting frequently"
+
+      # Database Specific Alerts
+      - alert: ClickHouseHighQueryTime
+        expr: rate(clickhouse_query_duration_seconds_sum[5m]) / rate(clickhouse_query_duration_seconds_count[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: clickhouse
+        annotations:
+          summary: "ClickHouse queries are slow"
+          description: "Average ClickHouse query time is above 1 second"
+
+      - alert: ClickHouseHighMemoryUsage
+        expr: clickhouse_memory_usage_bytes / clickhouse_memory_limit_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: clickhouse
+        annotations:
+          summary: "ClickHouse high memory usage"
+          description: "ClickHouse is using more than 85% of allocated memory"
+
+      # NATS Specific Alerts
+      - alert: NATSHighConnectionCount
+        expr: nats_connections > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: nats
+        annotations:
+          summary: "NATS high connection count"
+          description: "NATS has more than 1000 active connections"
+
+      - alert: NATSHighMessageRate
+        expr: rate(nats_messages_total[5m]) > 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: nats
+        annotations:
+          summary: "NATS high message rate"
+          description: "NATS message rate is above 10,000 messages/second"
+
+      # Prometheus Self-Monitoring
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: prometheus
+        annotations:
+          summary: "Prometheus monitoring is down"
+          description: "Prometheus monitoring service has been down for more than 30 seconds"
+
+      - alert: PrometheusHighMemoryUsage
+        expr: (process_resident_memory_bytes{job="prometheus"} / 1024 / 1024) > 2048
+        for: 5m
+        labels:
+          severity: warning
+          component: prometheus
+        annotations:
+          summary: "Prometheus high memory usage"
+          description: "Prometheus is using more than 2GB of memory"
+
+      - alert: PrometheusHighScrapeErrors
+        expr: rate(scrape_failures_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: prometheus
+        annotations:
+          summary: "Prometheus high scrape error rate"
+          description: "Prometheus scrape error rate is above 0.1 errors/second"
